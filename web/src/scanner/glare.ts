@@ -6,10 +6,12 @@
 //   greying the rainbow): none locked more right cards, and filling the glare in locked 79% against 89%.
 // - Two views beat one cleaned view: of two scans of the same printing, the better one was named
 //   99.3% of the time, and the two merged so each spot came from the one with less glare 93 to 95%.
-//   So the scanner's way past glare is another view of the card: tilted, from the wide lens, or
-//   without the flashlight.
-// - The flashlight was the glare. With it on, a median 2.3% of the art was blown out (0.0% with it
-//   off), always in the same place, left of the art's middle, where the flash's reflection lands.
+//   So the scanner's way past glare is another view of the card: tilted, from another lens, or in
+//   another light.
+// - Struggle records with the flashlight on had more of the art blown out (a median 2.3% against
+//   0.0%), but that was Bryan turning it on for the hard foils, not the flashlight's glare: "The
+//   flashlight made it better. The normal lights did it too" (23 Nov 2026). So the scanner turns it
+//   on for a card it struggles with (TorchOnStruggle), never off.
 // - Blown out here is ARTGLARE_HOT or brighter, as a 3 × 3 mean; GLARE_ART of the art's points
 //   blown out is glare: at that share the art model's top match was right 87% of the time against
 //   97% below it (at 0.04, 71%).
@@ -93,50 +95,45 @@ export class GlareWatch {
   }
 }
 
-/** Glare this long on an unnamed card with the flashlight on: the flashlight goes off. */
-export const TORCH_GLARE_MS = 600;
+/** A card the scanner can't name this long with the flashlight off: the flashlight goes on. */
+export const TORCH_ON_MS = 1500;
 
 /**
- * The flashlight off when it's what puts the glare on the art: the glare has stayed on a card the
- * scanner can't name for TORCH_GLARE_MS with the flashlight on. Once a session: turned back on by
- * the person after that, it's theirs, and stays on (the camera then only says to tilt the card).
- * `frame` asks for it once; `answered` says whether the camera took it (a camera that refused, or
- * closed meanwhile, isn't asked again this session).
+ * The flashlight on for a card the scanner struggles with (Bryan, 23 Nov 2026, after #207 turned it
+ * off for glare: "The flashlight made it better ... It was hard to scan them with no flashlight on
+ * too"). A card it's reading and can't name for TORCH_ON_MS with the flashlight off: on, once a
+ * session. The person's choice stands: once they have used the flashlight button (`person`), or the
+ * flashlight has been seen on and then off (the camera reopened), it's never turned on by itself
+ * again that session. Not on a frame whose art may name the card this pass (`hold`): the next frame
+ * that doesn't. `frame` asks once; `answered` says whether the camera took it.
  */
-export class TorchOnGlare {
+export class TorchOnStruggle {
   private since: number | null = null;
-  /** Asked the camera to turn it off (once a session). */
+  /** Asked the camera to turn it on (once a session). */
   private asked = false;
-  /** The camera turned it off. */
-  private turnedOff = false;
-  /** Seen off since (the camera's state lags its answer). */
-  private seenOff = false;
-  private kept = false;
+  /** The camera turned it on this session (for the record, whatever happened after). */
+  turnedOn = false;
+  /** Seen on, by anyone, and then seen off. */
+  private seenOn = false;
+  private leftOff = false;
 
-  /** Whether it turned the flashlight off this session (and the person hasn't turned it back on). */
-  get off(): boolean {
-    return this.turnedOff && !this.kept;
-  }
-
-  /** One frame: true when the flashlight should go off now. */
-  frame(glary: boolean, torchOn: boolean, now: number): boolean {
-    // Back on after it was seen off: the person wants it. (On before then is the camera's state
-    // not having caught up.)
-    if (this.turnedOff && !torchOn) this.seenOff = true;
-    if (torchOn && this.seenOff) this.kept = true;
-    if (!torchOn || this.asked || !glary) {
+  /** One frame: `struggling`, a card being read and not yet named. True when the flashlight should go on now. */
+  frame(struggling: boolean, torchOn: boolean, now: number, o: { person?: boolean; hold?: boolean } = {}): boolean {
+    if (torchOn) this.seenOn = true;
+    else if (this.seenOn) this.leftOff = true;
+    if (torchOn || this.asked || this.leftOff || o.person || !struggling) {
       this.since = null;
       return false;
     }
     this.since ??= now;
-    if (now - this.since < TORCH_GLARE_MS) return false;
+    if (o.hold || now - this.since < TORCH_ON_MS) return false;
     this.asked = true;
     this.since = null;
     return true;
   }
 
-  /** The camera's answer to turning it off: taken, or not (then not asked again). */
+  /** The camera's answer to turning it on: taken, or not (then not asked again). */
   answered(ok: boolean): void {
-    if (ok) this.turnedOff = true;
+    if (ok) this.turnedOn = true;
   }
 }

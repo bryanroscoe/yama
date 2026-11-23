@@ -59,7 +59,7 @@ import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from 
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens, WideOnStruggle } from "./zoomPolicy";
-import { GlareWatch, TorchOnGlare } from "./glare";
+import { GlareWatch, TorchOnStruggle } from "./glare";
 import { agrees, FOLLOW_MOVE } from "./outline";
 import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
@@ -476,10 +476,9 @@ const SAME_CARD_MARGIN = 0.02;
 const FURTHER = "Hold the phone a little further away";
 /** Glare on the art of a card the scanner can't name yet (glare.ts): another view gets past it. */
 const GLARE_TILT = "Glare on the card: tilt it a little";
-const GLARE_TORCH = "Glare on the card: tilt it, or turn the flashlight off";
-/** The flashlight was turned off for the glare it put on the card (glare.ts TorchOnGlare), said this long. */
-const TORCH_OFF = "Flashlight off: it put glare on the card";
-const TORCH_OFF_MS = 2500;
+/** The flashlight was turned on for a card the scanner struggles with (glare.ts TorchOnStruggle), said this long. */
+const TORCH_ON = "Flashlight on, to help read the card";
+const TORCH_ON_SAID_MS = 2500;
 
 /** A frame's glare (glare.ts), rounded for a record. */
 const glareNote = (g: number | null) => (g == null ? null : Math.round(g * 1000) / 1000);
@@ -1205,8 +1204,8 @@ function ScannerScreen({
     if ((fm?.models ?? modelsNow()).art?.endsWith("-native") && nativeArtMs.current.length) timing.detail.art_ms = Math.round(median(nativeArtMs.current) * 10) / 10;
     if (nativeArtFailedRef.current) timing.detail.art_fallback = nativeArtFailedRef.current.slice(0, 120);
     // On the live camera: the most glare on the card's art while it was looked for (glare.ts), the
-    // flashlight and zoom of the last frame read (0.5: gone wide), and whether the flashlight was
-    // turned off for glare this session. (Not for a photo or a typed name.)
+    // flashlight and zoom of the frame read (0.5: gone wide), and whether the scanner turned the
+    // flashlight on for a struggling card this session. (Not for a photo or a typed name.)
     if (timed) {
       if (glareWatch.current.peak > 0) timing.detail.glare = glareNote(glareWatch.current.peak);
       const at = frameCam.current;
@@ -1214,7 +1213,7 @@ function ScannerScreen({
         timing.detail.torch = at.torch;
         timing.detail.zoom = Math.round(at.zoom * 100) / 100;
       }
-      if (torchGlare.current.off) timing.detail.torch_off_glare = true;
+      if (torchHelp.current.turnedOn) timing.detail.torch_on_struggle = true;
     }
     return timing;
   };
@@ -1431,18 +1430,19 @@ function ScannerScreen({
   /** Glare on the art of the card being looked for (glare.ts), as of the last pass that read it. */
   const glareWatch = useRef(new GlareWatch());
   const glareNow = useRef({ glary: false, hint: false });
-  /** The flashlight off when it's what glares on the card (glare.ts), and when it went off. */
-  const torchGlare = useRef(new TorchOnGlare());
-  const torchOffAt = useRef(-Infinity);
+  /** The flashlight on for a card the scanner struggles with (glare.ts), and when it went on. */
+  const torchHelp = useRef(new TorchOnStruggle());
+  const torchOnAt = useRef(-Infinity);
   /** The camera's zoom and flashlight as the frame being read was taken (timing records). */
   const frameCam = useRef<{ zoom: number; torch: boolean } | null>(null);
   /** What to do about the glare on the card being read (glare.ts), or null: shown on the camera's chip. */
   const [glareSays, setGlareSays] = useState<string | null>(null);
   const glareSaid = useRef<string | null>(null);
   const glareText = (): string | null => {
-    if (performance.now() - torchOffAt.current < TORCH_OFF_MS) return TORCH_OFF;
+    // (Only while it's still on: turned off since, it isn't said.)
+    if (performance.now() - torchOnAt.current < TORCH_ON_SAID_MS && camRef.current.torch) return TORCH_ON;
     if (!glareNow.current.hint) return null;
-    return camRef.current.torch ? GLARE_TORCH : GLARE_TILT;
+    return GLARE_TILT;
   };
   const sayGlare = () => {
     const says = seekingRef.current ? glareText() : null;
@@ -1450,17 +1450,17 @@ function ScannerScreen({
     glareSaid.current = says;
     setGlareSays(says);
   };
-  /** A pass of the read loop reads a card it hasn't named: its glare (null: unmeasured), and the flashlight off if that's the glare. */
+  /** A pass of the read loop reads a card it hasn't named: its glare (null: unmeasured), and the flashlight on if it's struggling. */
   const seeking = (glare: number | null, mayName = false) => {
     seekingRef.current = true;
     const now = performance.now();
     glareNow.current = glareWatch.current.frame(glare, true, now);
     const c = camRef.current;
-    if (c.caps.torch && torchGlare.current.frame(glareNow.current.glary, c.torch, now)) {
-      // Said, and counted as off, only once the camera has taken it.
-      void c.setTorch(false).then((ok) => {
-        torchGlare.current.answered(ok);
-        if (ok) torchOffAt.current = performance.now();
+    if (c.caps.torch && torchHelp.current.frame(true, c.torch, now, { person: c.torchTouched(), hold: mayName })) {
+      // Said, and counted as on, only once the camera has taken it.
+      void c.setTorch(true).then((ok) => {
+        torchHelp.current.answered(ok);
+        if (ok) torchOnAt.current = performance.now();
       });
     }
     sayGlare();
@@ -1471,7 +1471,7 @@ function ScannerScreen({
     glareWatch.current.reset();
     glareNow.current = { glary: false, hint: false };
     // (So a flashlight the person turned back on after it went off is known to be theirs.)
-    torchGlare.current.frame(false, camRef.current.torch, performance.now());
+    torchHelp.current.frame(false, camRef.current.torch, performance.now(), { person: camRef.current.torchTouched() });
     sayGlare();
   };
   /** A pass that holds the card just added or filed, or sees a card back: no card being named. */
@@ -2820,6 +2820,8 @@ function ScannerScreen({
                 endSeek();
                 appeared.current = null;
               }
+              // A card moving is a new placement: its struggle (glare, the flashlight's wait) starts again.
+              if (d.kind === "moving") clearGlare();
               // A provisional row's card still lying there (card first): its collector line is read
               // from this frame; once it's gone, or another card lies there, that ends.
               const later = heldLater.current;
@@ -2982,7 +2984,7 @@ function ScannerScreen({
           // (With the gate too: a lead settles on its second read in a row, 50 ms after the first.)
           const leadFrames = leadRun.step(leading ? top.name : null);
           // A card being read to name it (a struggle, if it goes on: going wide, the glare said and the
-          // flashlight off), or a back, which isn't. Art that's sure or leads may name it on this
+          // flashlight on), or a back, which isn't. Art that's sure or leads may name it on this
           // pass: no stepping out under it.
           // (Art the set lock can't use for this card settles nothing: it doesn't hold the step back.)
           if (faceDown) notSeeking();

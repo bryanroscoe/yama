@@ -239,6 +239,8 @@ export function useCameraControls() {
     setZoomState(1);
     setError(null);
   }, []);
+  /** The person has used the flashlight button this session: the scanner then never touches it (glare.ts TorchOnStruggle). */
+  const torchByPerson = useRef(false);
   /** Turn the flashlight on or off: whether the camera open now took it (false: another camera, or refused). */
   const setTorch = useCallback(async (on: boolean): Promise<boolean> => {
     const t = track.current;
@@ -247,6 +249,13 @@ export function useCameraControls() {
       // Only for the camera it was meant for (another may be open by the time it's done).
       if (!(await apply(t, { torch: on }))) return false;
       if (track.current !== t) return false;
+      // A browser may skip a setting it can't meet and still resolve (an \`advanced\` set): the camera's
+      // own report, where it gives one, says whether it took it (review of #208).
+      const now = (t.getSettings?.() as { torch?: unknown } | undefined)?.torch;
+      if (typeof now === "boolean" && now !== on) {
+        setError(on ? "The flashlight didn't turn on" : "The flashlight didn't turn off");
+        return false;
+      }
       setTorchState(on);
       setError(null);
       return true;
@@ -375,6 +384,16 @@ export function useCameraControls() {
     caps,
     torch,
     setTorch,
+    /** The flashlight button: the person's own choice, which the scanner leaves alone from then on. */
+    personSetsTorch: useCallback(
+      (on: boolean) => {
+        torchByPerson.current = true;
+        return setTorch(on);
+      },
+      [setTorch],
+    ),
+    /** Whether the person has used the flashlight button this session. */
+    torchTouched: useCallback(() => torchByPerson.current, []),
     zoom,
     autoZoom,
     focusAt,
@@ -436,7 +455,7 @@ export function CameraControls({ c, live }: { c: CameraControlState; live: boole
   return (
     <div className="scan-tools">
       {c.caps.torch && (
-        <Button className={`scan-tool${c.torch ? " is-on" : ""}`} onClick={() => void c.setTorch(!c.torch)} aria-pressed={c.torch} aria-label={c.torch ? "Turn the flashlight off" : "Turn the flashlight on"}>
+        <Button className={`scan-tool${c.torch ? " is-on" : ""}`} onClick={() => void c.personSetsTorch(!c.torch)} aria-pressed={c.torch} aria-label={c.torch ? "Turn the flashlight off" : "Turn the flashlight on"}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M7 2h10v4l-3 4v11a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V10L7 6z" />
             {c.torch && <path d="M12 13v3" />}
