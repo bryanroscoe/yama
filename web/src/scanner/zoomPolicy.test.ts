@@ -182,4 +182,18 @@ describe("going wide when a card struggles", () => {
     expect(w.frame(0.6, true, false, 1, t, true)).toBe(0.5);
     expect(WIDE_GLARE_MS).toBeLessThan(WIDE_AFTER_MS);
   });
+
+  it("forgets a struggle when the read loop stops, and comes back from 0.5x", () => {
+    const w = new WideOnStruggle(pixel);
+    let t = 0;
+    for (; t < WIDE_AFTER_MS - 100; t += 100) w.frame(0.6, true, false, 1, t);
+    // A pause (Scan settings) of a minute: not time spent struggling.
+    expect(w.reset()).toBeNull();
+    t += 60_000;
+    for (let i = 0; i < WIDE_AFTER_MS / 100; i += 1) expect(w.frame(0.6, true, false, 1, (t += 100))).toBeNull();
+    expect(w.frame(0.6, true, false, 1, (t += 100))).toBe(0.5);
+    // Into a close-up while wide: back to 1x.
+    expect(w.reset()).toBe(1);
+    expect(w.isWide).toBe(false);
+  });
 });

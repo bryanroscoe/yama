@@ -71,6 +71,9 @@ describe("TorchOnGlare", () => {
     expect(t.frame(true, true, 0)).toBe(false);
     expect(t.frame(true, true, TORCH_GLARE_MS - 1)).toBe(false);
     expect(t.frame(true, true, TORCH_GLARE_MS)).toBe(true);
+    // Off only once the camera has taken it.
+    expect(t.off).toBe(false);
+    t.answered(true);
     expect(t.off).toBe(true);
     // The camera's state still says on for a frame or two: that isn't the person turning it back on.
     expect(t.frame(true, true, TORCH_GLARE_MS + 30)).toBe(false);
@@ -91,5 +94,14 @@ describe("TorchOnGlare", () => {
     expect(t.frame(false, true, 10_000 + TORCH_GLARE_MS / 2)).toBe(false);
     expect(t.frame(true, true, 10_000 + TORCH_GLARE_MS)).toBe(false);
     expect(t.frame(true, true, 10_000 + 2 * TORCH_GLARE_MS)).toBe(true);
+  });
+
+  it("asks once: a camera that refused isn't asked again, and says nothing went off", () => {
+    const t = new TorchOnGlare();
+    t.frame(true, true, 0);
+    expect(t.frame(true, true, TORCH_GLARE_MS)).toBe(true);
+    t.answered(false);
+    expect(t.off).toBe(false);
+    for (let at = TORCH_GLARE_MS; at < 5 * TORCH_GLARE_MS; at += 100) expect(t.frame(true, true, at)).toBe(false);
   });
 });

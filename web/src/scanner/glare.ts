@@ -100,11 +100,16 @@ export const TORCH_GLARE_MS = 600;
  * The flashlight off when it's what puts the glare on the art: the glare has stayed on a card the
  * scanner can't name for TORCH_GLARE_MS with the flashlight on. Once a session: turned back on by
  * the person after that, it's theirs, and stays on (the camera then only says to tilt the card).
+ * `frame` asks for it once; `answered` says whether the camera took it (a camera that refused, or
+ * closed meanwhile, isn't asked again this session).
  */
 export class TorchOnGlare {
   private since: number | null = null;
+  /** Asked the camera to turn it off (once a session). */
+  private asked = false;
+  /** The camera turned it off. */
   private turnedOff = false;
-  /** The flashlight seen off since it was turned off (the camera's state lags the call). */
+  /** Seen off since (the camera's state lags its answer). */
   private seenOff = false;
   private kept = false;
 
@@ -115,18 +120,23 @@ export class TorchOnGlare {
 
   /** One frame: true when the flashlight should go off now. */
   frame(glary: boolean, torchOn: boolean, now: number): boolean {
-    // Back on after it was seen off: the person wants it. (On before it was seen off is the
-    // camera not having caught up yet.)
+    // Back on after it was seen off: the person wants it. (On before then is the camera's state
+    // not having caught up.)
     if (this.turnedOff && !torchOn) this.seenOff = true;
     if (torchOn && this.seenOff) this.kept = true;
-    if (!torchOn || this.kept || this.turnedOff || !glary) {
+    if (!torchOn || this.asked || !glary) {
       this.since = null;
       return false;
     }
     this.since ??= now;
     if (now - this.since < TORCH_GLARE_MS) return false;
-    this.turnedOff = true;
+    this.asked = true;
     this.since = null;
     return true;
+  }
+
+  /** The camera's answer to turning it off: taken, or not (then not asked again). */
+  answered(ok: boolean): void {
+    if (ok) this.turnedOff = true;
   }
 }

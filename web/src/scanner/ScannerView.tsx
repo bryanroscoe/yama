@@ -59,7 +59,7 @@ import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from 
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, LENS_SWITCH, maySwitchLens, WideOnStruggle } from "./zoomPolicy";
-import { artGlare, GlareWatch, TorchOnGlare } from "./glare";
+import { GlareWatch, TorchOnGlare } from "./glare";
 import { agrees, FOLLOW_MOVE } from "./outline";
 import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
@@ -1202,12 +1202,18 @@ function ScannerScreen({
     // The art read in the app: its median read (ms, native code), or why the worker read it.
     if ((fm?.models ?? modelsNow()).art?.endsWith("-native") && nativeArtMs.current.length) timing.detail.art_ms = Math.round(median(nativeArtMs.current) * 10) / 10;
     if (nativeArtFailedRef.current) timing.detail.art_fallback = nativeArtFailedRef.current.slice(0, 120);
-    // The most glare on the card's art while it was looked for (glare.ts), the flashlight, the zoom
-    // it was named at (0.5: gone wide), and whether the flashlight was turned off for glare this session.
-    if (glareWatch.current.peak > 0) timing.detail.glare = glareNote(glareWatch.current.peak);
-    timing.detail.torch = camRef.current.torch;
-    timing.detail.zoom = Math.round(camRef.current.zoom * 100) / 100;
-    if (torchGlare.current.off) timing.detail.torch_off_glare = true;
+    // On the live camera: the most glare on the card's art while it was looked for (glare.ts), the
+    // flashlight and zoom of the last frame read (0.5: gone wide), and whether the flashlight was
+    // turned off for glare this session. (Not for a photo or a typed name.)
+    if (timed) {
+      if (glareWatch.current.peak > 0) timing.detail.glare = glareNote(glareWatch.current.peak);
+      const at = frameCam.current;
+      if (at) {
+        timing.detail.torch = at.torch;
+        timing.detail.zoom = Math.round(at.zoom * 100) / 100;
+      }
+      if (torchGlare.current.off) timing.detail.torch_off_glare = true;
+    }
     return timing;
   };
   /**
@@ -1425,6 +1431,22 @@ function ScannerScreen({
   /** The flashlight off when it's what glares on the card (glare.ts), and when it went off. */
   const torchGlare = useRef(new TorchOnGlare());
   const torchOffAt = useRef(-Infinity);
+  /** The camera's zoom and flashlight as the frame being read was taken (timing records). */
+  const frameCam = useRef<{ zoom: number; torch: boolean } | null>(null);
+  /** What to do about the glare on the card being read (glare.ts), or null: shown on the camera's chip. */
+  const [glareSays, setGlareSays] = useState<string | null>(null);
+  const glareSaid = useRef<string | null>(null);
+  const glareText = (): string | null => {
+    if (performance.now() - torchOffAt.current < TORCH_OFF_MS) return TORCH_OFF;
+    if (!glareNow.current.hint) return null;
+    return camRef.current.torch ? GLARE_TORCH : GLARE_TILT;
+  };
+  const sayGlare = () => {
+    const says = seekingRef.current ? glareText() : null;
+    if (says === glareSaid.current) return;
+    glareSaid.current = says;
+    setGlareSays(says);
+  };
   /** A pass of the read loop reads a card it hasn't named: its glare (null: unmeasured), and the flashlight off if that's the glare. */
   const seeking = (glare: number | null) => {
     seekingRef.current = true;
@@ -1432,9 +1454,13 @@ function ScannerScreen({
     glareNow.current = glareWatch.current.frame(glare, true, now);
     const c = camRef.current;
     if (c.caps.torch && torchGlare.current.frame(glareNow.current.glary, c.torch, now)) {
-      torchOffAt.current = now;
-      void c.setTorch(false);
+      // Said, and counted as off, only once the camera has taken it.
+      void c.setTorch(false).then((ok) => {
+        torchGlare.current.answered(ok);
+        if (ok) torchOffAt.current = performance.now();
+      });
     }
+    sayGlare();
   };
   /** The view clear of cards: the next card's glare is its own. */
   const clearGlare = () => {
@@ -1442,18 +1468,27 @@ function ScannerScreen({
     glareNow.current = { glary: false, hint: false };
     // (So a flashlight the person turned back on after it went off is known to be theirs.)
     torchGlare.current.frame(false, camRef.current.torch, performance.now());
+    sayGlare();
   };
   /** A pass that holds the card just added or filed, or sees a card back: no card being named. */
   const notSeeking = () => {
     seekingRef.current = false;
     clearGlare();
   };
-  /** What the camera says while it reads a card it can't name yet: READING, or what to do about the glare on it. */
-  const readingSays = (): string => {
-    if (performance.now() - torchOffAt.current < TORCH_OFF_MS) return TORCH_OFF;
-    if (!glareNow.current.hint) return READING;
-    return camRef.current.torch ? GLARE_TORCH : GLARE_TILT;
+  /**
+   * Out of the live read loop (a close-up, a photo, a pause, the set picker): what it saw of the card
+   * is stale (time paused isn't time struggling), and a camera gone wide for it comes back to 1×.
+   * The flashlight's history for the session stays.
+   */
+  const forgetSeen = () => {
+    notSeeking();
+    lastSeenQuad.current = null;
+    const back = wideRef.current?.reset();
+    const c = camRef.current;
+    if (back != null && !c.userZoomed()) c.autoZoom(back);
   };
+  /** What the camera says while it reads a card it can't name yet: READING, or what to do about the glare on it. */
+  const readingSays = (): string => glareText() ?? READING;
   useEffect(() => {
     autoZoomRef.current = cam.caps.zoom ? new AutoZoom(cam.caps.zoom) : null;
     wideRef.current = cam.caps.zoom ? new WideOnStruggle(cam.caps.zoom) : null;
@@ -2648,7 +2683,11 @@ function ScannerScreen({
 
   // Read loop: one frame at a time.
   useEffect(() => {
-    if (phase !== "scanning" || !mode || !live || closeup || photoBusy || paused || lockOpen) return;
+    if (phase !== "scanning" || !mode || !live || closeup || photoBusy || paused || lockOpen) {
+      // (What it saw of the card is stale by the time the loop runs again; 0.5x comes back to 1×.)
+      forgetSeen();
+      return;
+    }
     let stop = false;
     let failedReads = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2716,6 +2755,8 @@ function ScannerScreen({
           // (the timing record; Codex review of #171: stamped after recognition, a one-frame
           // settle measured nothing of its own read).
           const frameAt = Date.now();
+          // The camera's zoom and flashlight as this frame was taken, for its timing record.
+          frameCam.current = { zoom: camRef.current.zoom, torch: camRef.current.torch };
           // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
           const zone = zoomRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
@@ -2740,8 +2781,6 @@ function ScannerScreen({
           };
           const gated = gateOn();
           let r: Recognition;
-          /** The frame the art was read from (with the gate, the sharpest of the card's stay), for its glare. */
-          let readImage = image;
           if (gated) {
             // The placement gate (gate.ts): every frame goes to the card finder alone; the art is
             // matched only when the gate says the card has come to rest, on the sharpest frame of
@@ -2784,7 +2823,6 @@ function ScannerScreen({
               return next(d.kind === "none" ? 60 : GATE_PASS_MS);
             }
             const kept = d.frame!;
-            readImage = kept.image;
             gateRead = { placement: d.placement, key: "", held: false };
             toVideo = kept.toVideo;
             // Diagnostics' timing record: the card appeared when the gate first saw it, not at this read.
@@ -2806,8 +2844,8 @@ function ScannerScreen({
           const locked = lockRef.current;
           const judged = locked && r.quad ? judgeLocked(r.matches, r.pool, locked.inSets, ART_UNKNOWN) : null;
           const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
-          // Glare on the card's art, on the frame it was read from (glare.ts).
-          const glare = r.quad ? artGlare(readImage, r.quad) : null;
+          // Glare on the card's art, measured by the recognizer on the frame it read (glare.ts).
+          const glare = r.quad ? (r.glare ?? null) : null;
           // The card just added stays held until it has clearly gone (hold.ts): one missed
           // detection while it's still in view, or on its way out, would add it again.
           // The held card still counts as seen when any match names it (with the set lock, the
@@ -4620,6 +4658,9 @@ function ScannerScreen({
                   {/* Which card it just scanned, by name, where the eye is. */}
                   {`Added ${newest!.name}${flashPrice != null ? `, ${usd(flashPrice)}` : ""}`}
                 </>
+              ) : glareSays ? (
+                // Another card being read in its place, with glare: what to do about it (glare.ts).
+                glareSays
               ) : inARow > 1 ? (
                 `${inARow} added`
               ) : (

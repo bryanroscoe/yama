@@ -165,6 +165,21 @@ export class WideOnStruggle {
     return Math.max(1, this.range.min);
   }
 
+  /**
+   * The read loop stopped (a close-up, a photo, a pause, the set picker): what it saw is stale.
+   * The zoom to go back to when it had gone wide, else null.
+   */
+  reset(): number | null {
+    const was = this.wide;
+    this.wide = false;
+    this.spent = false;
+    this.wasNamed = false;
+    this.missRun = 0;
+    this.emptySince = null;
+    this.restart();
+    return was ? Math.max(1, this.range.min) : null;
+  }
+
   private restart(): void {
     this.since = null;
     this.closeSince = null;

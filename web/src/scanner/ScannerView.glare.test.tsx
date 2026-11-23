@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Printing } from "../api";
 import type { ArtRecognizer, BundleInfo } from "./artClient";
 import type { Quad, ScanCandidate } from "./types";
+import { WIDE_AFTER_MS } from "./zoomPolicy";
 
 const V = "gallery-20261106T183001884398Z";
 const printing = (id: string, set: string, number: string): Printing => ({
@@ -67,11 +68,16 @@ vi.mock("./artClient", async (original) => ({
       look: "off",
       useLook: async () => undefined,
       lookAt: async () => ({ model: "none", frames: 0, queryMs: 0, scored: 0, cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0, ms: 0 }),
-      identify: async (_image, onSeen) => {
+      identify: async (image, onSeen) => {
         const quad = cam.card === "none" ? null : QUAD;
         onSeen?.(quad);
+        // As the real worker: glare measured on the frame there, and the frame's pixels handed over
+        // (the page can't read them after the call).
+        const { artGlare } = await import("./glare");
+        const glare = quad ? artGlare(image, quad) : undefined;
+        (image.data.buffer as ArrayBuffer & { transfer?: () => ArrayBuffer }).transfer?.();
         const matches = cam.card === "signet" ? [{ ...signet(), score: 0.93 }] : cam.card === "foil" ? [{ ...other, score: 0.55 }, { ...signet(), score: 0.4 }] : [];
-        return { quad, upright: 1, matches, timings: { detectMs: 1, embedMs: 1, totalMs: 2 } };
+        return { quad, upright: 1, matches, ...(glare != null ? { glare } : {}), timings: { detectMs: 1, embedMs: 1, totalMs: 2 } };
       },
       locate: async () => {
         throw new Error("no gate here");
@@ -211,6 +217,19 @@ describe("glare and going wide", { timeout: 20_000 }, () => {
     await wait(4500);
     expect(zoomedTo(0.5)).toBe(false);
     expect(accepted).toHaveLength(1);
+  });
+
+  it("with glare on a foil laid where the card just filed was: says so in place of Still in view, keeps Scan next card, and steps out sooner", async () => {
+    const accepted: ScanCandidate[] = [];
+    act(() => root.render(<Host accepted={accepted} />));
+    await until(() => (accepted.length === 1 ? true : null), "the card filed");
+    cam.card = "foil";
+    const laid = performance.now();
+    await until(() => (chip().includes("Glare on the card: tilt it a little") ? true : null), "the glare said");
+    expect([...document.querySelectorAll(".scan-chip button")].map((b) => b.textContent)).toContain("Scan next card");
+    await until(() => (zoomedTo(0.5) ? true : null), "the step out to 0.5x");
+    // Glare: WIDE_GLARE_MS (1.5 s), well before the plain 3 s.
+    expect(performance.now() - laid).toBeLessThan(WIDE_AFTER_MS);
   });
 
   it("turns the flashlight off when its glare is on the art of a card it can't name, says so, then says to tilt it", async () => {

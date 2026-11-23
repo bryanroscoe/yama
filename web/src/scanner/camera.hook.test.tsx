@@ -28,7 +28,7 @@ describe("useCameraControls across a camera switch", () => {
     const zooming = track({ min: 1, max: 10 }, () => slow);
     act(() => cam.attach(zooming));
     let zoomed!: Promise<void>;
-    let lit!: Promise<void>;
+    let lit!: Promise<boolean>;
     act(() => {
       zoomed = cam.autoZoom(4) as unknown as Promise<void>;
       lit = cam.setTorch(true);
