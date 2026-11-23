@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NameIndex } from "./fuzzy";
 import { decide } from "./pipeline";
-import { Evidence, expectedOf, hasTwin, looksLikeNumber, progressLine, proofOf, SETTLE, tokenMatch, tokens, withoutTotals } from "./evidence";
+import { Evidence, expectedOf, hasTwin, looksLikeNumber, progressLine, proofOf, SETTLE, tokenMatch, tokens, unpadded, withoutTotals } from "./evidence";
 
 const p = (id: string, set: string, number: string, over: { rarity?: string; lang?: string; released_at?: string } = {}) => ({
   scryfall_id: id,
@@ -34,8 +34,26 @@ describe("collector-line evidence", () => {
   });
 
   it("settles through lookalikes once they add up", () => {
-    expect(verdict(signets, [["C O145\nW0C * EN"]]).kind).toBe("unsure");
-    expect(verdict(signets, [["C O145\nW0C * EN"], ["C 0I45\nWOC • EN"]])).toMatchObject({ kind: "settled", id: "woc" });
+    expect(verdict(signets, [["C 0I4S\nW0C * EN"]]).kind).toBe("unsure");
+    expect(verdict(signets, [["C 0I4S\nW0C * EN"], ["C 0I45\nWOC • EN"]])).toMatchObject({ kind: "settled", id: "woc" });
+  });
+
+  it("reads a printed number's leading zeros read as O (or D, Q) as the zeros they are, never a lookalike like O14S", () => {
+    // Diagnostics of 22 and 23 Nov 2026: "M O005 FFX / FIC*EN" for FIC 5, "O122" for FRA 122.
+    expect(tokenMatch(unpadded("O005"), "5", true)).toBe(1);
+    expect(tokenMatch(unpadded("OO05"), "5", true)).toBe(1);
+    expect(tokenMatch(unpadded("D0122"), "122", true)).toBe(1);
+    expect(unpadded("O14S")).toBe("O14S");
+    expect(unpadded("O45")).toBe("O45");
+    expect(unpadded("ODQ")).toBe("ODQ");
+    // "©2023" read glued as "O2023" is still a year, never a number by itself.
+    const sld = [p("sld2023", "sld", "2023", { released_at: "2024-01-01" }), p("sld99", "sld", "99", { released_at: "2024-01-01" })];
+    expect(verdict(sld, Array(3).fill(["O2023 WIZARDS OF THE COAST"])).kind).toBe("unsure");
+    // Tidus, Yuna's Guardian (fic 5, 187, 224): the one clean frame names fic 5.
+    const tidus = [p("fic5", "fic", "5", { rarity: "mythic" }), p("fic187", "fic", "187", { rarity: "mythic" }), p("fic224", "fic", "224", { rarity: "mythic" })];
+    expect(verdict(tidus, [["M O005 FFX\nFIC*EN"]])).toMatchObject({ kind: "settled", id: "fic5" });
+    // The same read with the number as a lookalike is only a lead, as before.
+    expect(verdict(tidus, [["M OOOS FFX\nFIC*EN"]]).kind).toBe("unsure");
   });
 
   it("isn't reset by a stray frame naming another printing", () => {

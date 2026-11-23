@@ -69,8 +69,12 @@ export function setDiagnosticsOn(on: boolean) {
 
 /** Why a record is kept. */
 /** "slow-printing": the scanner settled the printing itself, but SLOW_PRINTING_MS or more after the card was named. */
-export type Reason = "picked" | "wrong-card" | "wrong-printing" | "hold-gave-up" | "closeup" | "title-overruled" | "slow-find" | "slow-printing";
-export type Outcome = "filed" | "picked" | "wrong" | "skipped" | "left";
+/** "reported": the person sent the card in hand themselves ("Send this scan", Bryan, 23 Nov 2026), switch on or off. */
+export type Reason = "picked" | "wrong-card" | "wrong-printing" | "hold-gave-up" | "closeup" | "title-overruled" | "slow-find" | "slow-printing" | "reported";
+/** "reported": sent by the person while the card was still in hand ("Send this scan"); how it ended comes in a later record, if any. */
+export type Outcome = "filed" | "picked" | "wrong" | "skipped" | "left" | "reported";
+/** The longest note the person may add to a scan they send. */
+export const MAX_NOTE = 500;
 
 /** A card in view and the image it's in. */
 export type { Shot } from "./crops";
@@ -188,6 +192,14 @@ export class ScanRecord {
     return this.sent;
   }
 
+  /**
+   * Still this account's and this switch's: not cancelled, the same account signed in, and no
+   * "Delete them" or switch turned off since it started. Only such a record is copied for "Send this scan".
+   */
+  get isLive() {
+    return !this.cancelled && !this.account.aborted && this.generation === generation;
+  }
+
   /** ms since the record started (the time frame notes are given in). */
   since(): number {
     return Date.now() - this.started;
@@ -206,9 +218,13 @@ export class ScanRecord {
     this.frames.length = 0;
   }
 
-  /** Whether it may still be sent: not cancelled, the switch on and not turned off since it started, the same account signed in. */
-  private allowed(): boolean {
-    return !this.cancelled && !this.account.aborted && this.generation === generation && diagnosticsOn();
+  /**
+   * Whether it may still be sent: not cancelled, the same account signed in, "Delete them" not
+   * pressed since it started, and the switch on and not turned off since; or, for a scan the person
+   * sent themselves (`asked`, "Send this scan"), their tap in place of the switch.
+   */
+  private allowed(asked = false): boolean {
+    return !this.cancelled && !this.account.aborted && this.generation === generation && (asked || diagnosticsOn());
   }
 
   /**
@@ -217,6 +233,14 @@ export class ScanRecord {
    */
   continued(): ScanRecord {
     if (!this.sent || this.cancelled) return this;
+    return this.copy();
+  }
+
+  /**
+   * A copy of what it holds so far, as a record of its own ("Send this scan"): sending the copy
+   * leaves this one to be sent when the card is done with, as it would have been.
+   */
+  copy(): ScanRecord {
     const r = new ScanRecord(this.account, this.generation);
     Object.assign(r.facts, this.facts);
     r.camera = this.camera;
@@ -271,10 +295,11 @@ export class ScanRecord {
 
   /**
    * Send it, once, if it has a reason to be kept and may still be sent (checked again after the
-   * images are encoded, which takes a moment). Never throws.
+   * images are encoded, which takes a moment). Never throws. `asked`: the person tapped "Send this
+   * scan", which sends it with Scanner diagnostics off too.
    */
-  async send(outcome: Outcome): Promise<boolean> {
-    if (this.sent || this.reasons.size === 0 || !this.allowed()) return false;
+  async send(outcome: Outcome, asked = false): Promise<boolean> {
+    if (this.sent || this.reasons.size === 0 || !this.allowed(asked)) return false;
     this.sent = true;
     try {
       const images: { name: string; image: string; width: number; height: number }[] = [];
@@ -287,7 +312,7 @@ export class ScanRecord {
       await add("symbol", this.symbol, SYMBOL_MAX);
       await add("strip-last", this.stripLast, STRIP_MAX);
       await add("card", this.card, CARD_SIDE);
-      if (!this.allowed()) return false;
+      if (!this.allowed(asked)) return false;
       await track(
         api("/api/scan/diagnostics", {
           method: "POST",

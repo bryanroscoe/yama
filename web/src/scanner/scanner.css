@@ -95,6 +95,12 @@
   font-size: var(--t-label);
 }
 /* The next step is a tap, not the camera: outlined in the panel, and a white chip over the camera. */
+/* "Send this scan": the note, then Send. */
+.scan-report-say {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
 .scan-step.is-tap {
   padding: 12px;
   border: 1px solid var(--text);

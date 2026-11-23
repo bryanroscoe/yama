@@ -113,6 +113,63 @@ describe("scanner diagnostics", () => {
     expect(await after.send("picked")).toBe(true);
   });
 
+  it("Send this scan sends the card in hand with the switch off, with the person's note, but never under another account or after Delete them", async () => {
+    setDiagnosticsOn(false);
+    const rec = new ScanRecord();
+    rec.reasons.add("reported");
+    rec.note("note", "Foil");
+    // Not by itself: only the person's tap sends it.
+    expect(await rec.send("reported")).toBe(false);
+    expect(posted.bodies).toHaveLength(0);
+    const asked = new ScanRecord();
+    asked.reasons.add("reported");
+    asked.note("note", "Foil");
+    expect(await asked.send("reported", true)).toBe(true);
+    expect(await asked.send("reported", true)).toBe(false);
+    const body = posted.bodies[0] as { outcome: string; detail: { reasons: string[]; note: string } };
+    expect(body.outcome).toBe("reported");
+    expect(body.detail.reasons).toEqual(["reported"]);
+    expect(body.detail.note).toBe("Foil");
+    // Never under another account's sign-in.
+    const account = new AbortController();
+    const theirs = new ScanRecord(account.signal);
+    theirs.reasons.add("reported");
+    account.abort();
+    expect(await theirs.send("reported", true)).toBe(false);
+    // Nor one begun before "Delete them".
+    const before = new ScanRecord();
+    before.reasons.add("reported");
+    await deleteDiagnostics();
+    expect(await before.send("reported", true)).toBe(false);
+    expect(before.isLive).toBe(false);
+    // Nor a cancelled one.
+    const cancelled = new ScanRecord();
+    cancelled.reasons.add("reported");
+    cancelled.cancel();
+    expect(cancelled.isLive).toBe(false);
+    expect(await cancelled.send("reported", true)).toBe(false);
+    expect(posted.bodies.filter((b) => (b as { path: string }).path === "/api/scan/diagnostics" && !(b as { method?: string }).method)).toHaveLength(1);
+  });
+
+  it("Send this scan sends a copy: the card's own record is still sent when the card is done with, without the note", async () => {
+    const own = new ScanRecord();
+    own.frame({ source: "hold", reads: ["0122 FRA • EN"] });
+    const sent = own.copy();
+    sent.reasons.add("reported");
+    sent.note("note", "Foil");
+    expect(await sent.send("reported", true)).toBe(true);
+    own.reasons.add("picked");
+    expect(own.isLive).toBe(true);
+    expect(await own.send("picked")).toBe(true);
+    const [a, b] = posted.bodies as { outcome: string; detail: { reasons: string[]; note?: string; frames: unknown[] } }[];
+    expect(a!.detail).toMatchObject({ reasons: ["reported"], note: "Foil" });
+    expect(a!.detail.frames).toHaveLength(1);
+    expect(b!.outcome).toBe("picked");
+    expect(b!.detail.reasons).toEqual(["picked"]);
+    expect(b!.detail.note).toBeUndefined();
+    expect(b!.detail.frames).toHaveLength(1);
+  });
+
   it("a cancelled record keeps nothing more and is never sent, nor what follows it", async () => {
     const rec = new ScanRecord();
     rec.reasons.add("hold-gave-up");
