@@ -836,6 +836,21 @@ function ScannerScreen({
    * frame while the card is still there; review of 17 Nov 2026).
    */
   const filedName = useRef<string | null>(null);
+  /**
+   * The artworks the card filed last has been seen as since (its own, its lookalikes, and any top
+   * match of a frame held as that card): one of them leading isn't another card (review of #205:
+   * a card filed by its title shows a lookalike's art at 0.62 to 0.8, frame after frame).
+   */
+  const filedArts = useRef(new Set<number>());
+  /** Another card leading the art while the filed card is held: its artwork and frames in a row. */
+  const filedOther = useRef<{ index: number; frames: number } | null>(null);
+  /** The card filed last: its name holds it until the view clears (`stillFiledAs`). */
+  const fileAs = (f: Found) => {
+    filedName.current = f.name;
+    // (With the art the camera last led with while it lay there: a card named by its title.)
+    filedArts.current = new Set([...(f.art ? [f.art.index] : []), ...f.others.map((o) => o.index), ...(last.current ? [last.current.index] : [])]);
+    filedOther.current = null;
+  };
   /** With Scanner diagnostics on: when the scanner started looking at the card now in view, and what each frame read. */
   const seek = useRef<{ rec: ScanRecord; started: number; frames: Record<string, unknown>[] } | null>(null);
   /** The read loop handed the card to the title close-up: the look goes on there (Codex review of #165). */
@@ -2540,8 +2555,9 @@ function ScannerScreen({
           return false;
         }
         blockedName.current = null;
-        // Freed by another card read (not the filed one): that card is what's in view now.
-        if (best && !stillFiledAs(filedName, best.name)) filedName.current = null;
+        // Freed by another card read (not the filed one), or by empty reads in text-only mode (no
+        // card finder to say the view cleared): the filed card has gone.
+        if (emptyFrees || (best && !stillFiledAs(filedName, best.name))) filedName.current = null;
         if (!blocked.current && !filedName.current) setDupe(null);
       }
       if (!best) return false;
@@ -2724,9 +2740,14 @@ function ScannerScreen({
           const heldIndex = blocked.current?.index;
           const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
           if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
-          // Another card matched as surely as the art hold's rule asks (another card at LOCK_TWICE):
-          // the card filed last has gone, though the view never emptied (review of #205).
-          if (r.quad && top && top.score >= LOCK_TWICE && filedName.current && !stillFiledAs(filedName, top.name)) filedName.current = null;
+          // Another card has taken the filed one's place, though the view never emptied (review of
+          // #205): an artwork it hasn't been seen as leads, surely (LOCK_ONCE) or on two frames in a
+          // row at LOCK_TWICE. Any other frame's lead is taken as the filed card seen again.
+          if (r.quad && top && filedName.current && !stillFiledAs(filedName, top.name) && !filedArts.current.has(top.index) && top.score >= LOCK_TWICE) {
+            const run = filedOther.current?.index === top.index ? filedOther.current.frames + 1 : 1;
+            filedOther.current = { index: top.index, frames: run };
+            if (top.score >= LOCK_ONCE || run >= 2) filedName.current = null;
+          } else filedOther.current = null;
           // A provisional row's card (card first) is read only while it's the card held.
           if (heldLater.current && blocked.current?.index !== heldLater.current.index) heldLater.current.end();
           if (gateRead && top) gateRead.key = top.name;
@@ -2766,6 +2787,7 @@ function ScannerScreen({
               await later.read(toVideo(r.quad));
               if (stop) return;
             }
+            if (filedName.current) filedArts.current.add(top.index);
             setStatus(NEXT);
             return next(later ? 60 : HELD_PASS_MS);
           }
@@ -2789,6 +2811,7 @@ function ScannerScreen({
           if (isHeld(top.name) || (gated && gate.suppresses(top.name, performance.now()))) {
             if (gateRead) gateRead.held = true;
             leadRun.step(null);
+            if (filedName.current) filedArts.current.add(top.index);
             setStatus(NEXT);
             return next(HELD_PASS_MS);
           }
@@ -2891,6 +2914,7 @@ function ScannerScreen({
             // The card just filed, by its art or its title: still held. Not a new card appearing.
             if (fusedHeld(fused, heldName) || fusedHeld(fused, filedName.current ?? undefined)) {
               if (gateRead) gateRead.held = true;
+              if (filedName.current) filedArts.current.add(top.index);
               appeared.current = null;
               setStatus(NEXT);
               return next(60);
@@ -2925,6 +2949,7 @@ function ScannerScreen({
             const agreed = said && said.confidence >= (identityOnly ? TEXT_VETO : TEXT_AGREE_FILES) && !artUnknown && !blockedName.current ? artHas(ranked, said.name) : undefined;
             if (agreed && isHeld(agreed.name)) {
               if (gateRead) gateRead.held = true;
+              if (filedName.current) filedArts.current.add(top.index);
               appeared.current = null;
               setStatus(NEXT);
               return next(60);
@@ -3715,7 +3740,7 @@ function ScannerScreen({
       filedSetNames.current.set(c.set_code, c.set_name);
       setFiledSets((s) => [c.set_code, ...s].slice(0, 10));
     }
-    filedName.current = f.name;
+    fileAs(f);
     const saved = onAccept(card, n, auto);
     // The card stays in the session list either way (a failed save can be tried again there), so
     // scanning goes on; "Added" waits for the save.
@@ -3795,7 +3820,7 @@ function ScannerScreen({
       if (!single && f.art && (blocked.current?.index === f.art.index || stillFiledAs(filedName, f.name))) setDupe({ found: done, printing: c, label, settings: settingsAt });
     });
     host(row);
-    filedName.current = f.name;
+    fileAs(f);
     again(f, { keepRecord: true });
     setJustAdded({ text: `${addedWord} ${f.name}, finding the printing`, card: row.card, label: f.name, later: row });
     // The read loop handed this card over and goes on to the next.
@@ -4475,7 +4500,22 @@ function ScannerScreen({
         )}
         <CameraControls c={cam} live={live} />
         {typeof overlay === "function" ? overlay(isFound && found ? candidateOf(found, chosen) : null, { another: phase === "scanning" && (status === READING || closeup === "title") }) : overlay}
-        {(stillInView || flashing) && !tapNeeded ? (
+        {closeup && !tapNeeded && !lockOpen ? (
+          // A close-up can be left from the camera itself, not only from the sheet, which may be
+          // hidden or out of reach (Bryan, 23 Nov 2026: "if we're stuck in the scan name thing, we
+          // should better revert back with a button press on the cell on the screen").
+          <div className="scan-chip has-action">
+            <span role="status">{closeup === "title" ? (stuck === "sent" ? "Sent" : status) : found ? `${found.name}: now the printing, up close` : status}</span>
+            <Button className="scan-chip-action" onClick={() => setCloseup(null)}>
+              {closeup === "title" ? "Back to scanning" : "Back to the whole card"}
+            </Button>
+            {closeup === "title" && stuck && stuck !== "sent" && (
+              <Button className="scan-chip-action" onClick={sendStuck} disabled={stuck === "sending"}>
+                {stuck === "sending" ? "Sending…" : "Send this scan"}
+              </Button>
+            )}
+          </div>
+        ) : (stillInView || flashing) && !tapNeeded ? (
           <div className={`scan-chip has-action${flashing ? " found" : ""}`}>
             <span>
               {flashing ? (
@@ -4518,21 +4558,6 @@ function ScannerScreen({
             {onCorrect && justAdded.found && justAdded.printing && (
               <Button className="scan-chip-action" onClick={() => wrongPrinting({ ...justAdded.found!, chosen: justAdded.printing! }, justAdded.printing!, justAdded.card)}>
                 Wrong printing
-              </Button>
-            )}
-          </div>
-        ) : closeup && !tapNeeded && !lockOpen ? (
-          // A close-up can be left from the camera itself, not only from the sheet, which may be
-          // hidden or out of reach (Bryan, 23 Nov 2026: "if we're stuck in the scan name thing, we
-          // should better revert back with a button press on the cell on the screen").
-          <div className="scan-chip has-action">
-            <span role="status">{closeup === "title" ? (stuck === "sent" ? "Sent" : status) : found ? `${found.name}: now the printing, up close` : status}</span>
-            <Button className="scan-chip-action" onClick={() => setCloseup(null)}>
-              {closeup === "title" ? "Back to scanning" : "Back to the whole card"}
-            </Button>
-            {closeup === "title" && stuck && stuck !== "sent" && (
-              <Button className="scan-chip-action" onClick={sendStuck} disabled={stuck === "sending"}>
-                {stuck === "sending" ? "Sending…" : "Send this scan"}
               </Button>
             )}
           </div>

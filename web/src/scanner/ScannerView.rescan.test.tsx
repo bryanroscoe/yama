@@ -34,7 +34,7 @@ const bundle = (): BundleInfo => ({
 });
 
 /** What lies in view: the card found first, another card, or nothing. */
-const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "weak" | "lookalike" | "other" | "none", printings: 3, ill: 0 }));
+const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "weak" | "lookalike" | "titled" | "other" | "none", printings: 3, ill: 0, title: "" }));
 
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
@@ -68,7 +68,7 @@ vi.mock("./artClient", async (original) => ({
         const quad = cam.card === "none" ? null : QUAD;
         onSeen?.(quad);
         // "weak": the card still there, its art washed out (a foil in glare): too weak to hold it.
-        const matches = cam.card === "signet" ? [{ ...signet(), score: 0.93 }] : cam.card === "weak" ? [{ ...signet(), score: 0.3 }] : cam.card === "lookalike" ? [{ ...other, score: 0.5 }, { ...signet(), score: 0.45 }] : cam.card === "other" ? [{ ...other, score: 0.9 }, { ...signet(), score: 0.4 }] : [];
+        const matches = cam.card === "signet" ? [{ ...signet(), score: 0.93 }] : cam.card === "weak" ? [{ ...signet(), score: 0.3 }] : cam.card === "lookalike" ? [{ ...other, score: 0.5 }, { ...signet(), score: 0.45 }] : cam.card === "titled" ? [{ ...other, score: 0.7 }, { ...signet(), score: 0.66 }] : cam.card === "other" ? [{ ...other, score: 0.9 }, { ...signet(), score: 0.4 }] : [];
         return { quad, upright: 1, matches, timings: { detectMs: 1, embedMs: 1, totalMs: 2 } };
       },
       locate: async () => {
@@ -84,10 +84,11 @@ vi.mock("./artClient", async (original) => ({
     return r;
   },
 }));
-vi.mock("./serverCatalog", () => ({ createServerCatalog: async () => ({ hasSet: () => false, lookup: async () => null, names: () => [] }) }));
+vi.mock("./serverCatalog", () => ({ createServerCatalog: async () => ({ hasSet: () => false, lookup: async () => null, names: () => ["Arcane Signet", "Stridehangar Automaton"] }) }));
 vi.mock("./ocrEngine", async (original) => ({
   ...(await original<typeof import("./ocrEngine")>()),
-  createScannerOcr: async () => ({ engine: "tesseract", read: async () => ({ text: "", confidence: 0 }), terminate: async () => undefined }),
+  // A title read gives `cam.title` (the card's name, read off it); nothing else reads.
+  createScannerOcr: async () => ({ engine: "tesseract", read: async (_img: unknown, o: { mode: string }) => (o.mode === "line" && cam.title ? { text: cam.title, confidence: 95 } : { text: "", confidence: 0 }), terminate: async () => undefined }),
 }));
 vi.mock("./sounds", async (original) => ({ ...(await original<typeof import("./sounds")>()), playScanSound: () => undefined, playPriceSound: () => undefined }));
 
@@ -130,7 +131,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(cam, { card: "signet", printings: 3, ill: cam.ill + 1 });
+  Object.assign(cam, { card: "signet", printings: 3, ill: cam.ill + 1, title: "" });
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -249,5 +250,22 @@ describe("a card just filed isn't scanned again while it lies there", { timeout:
     const back = await until(() => [...document.querySelectorAll(".scan-chip button")].find((b) => b.textContent === "Back to scanning"), "Back to scanning on the chip");
     await click(back);
     await until(() => (document.querySelector(".scan-closeup") ? null : true), "the close-up gone");
+  });
+
+  it("holds a card named by its title while a lookalike's art leads, frame after frame (review of #205)", async () => {
+    cam.printings = 1;
+    // The art leads with a lookalike (Stridehangar at 0.70, the card at 0.66); its title says what it is.
+    cam.card = "titled";
+    cam.title = "Arcane Signet";
+    const accepted: ScanCandidate[] = [];
+    act(() => root.render(<Host accepted={accepted} closeups={false} />));
+    await until(() => (accepted.length === 1 ? true : null), "the card added by its title");
+    // It lies there: the lookalike keeps leading, glare comes and goes. Not filed again.
+    await wait(1500);
+    cam.card = "weak";
+    await wait(1000);
+    cam.card = "titled";
+    await wait(1500);
+    expect(accepted).toHaveLength(1);
   });
 });

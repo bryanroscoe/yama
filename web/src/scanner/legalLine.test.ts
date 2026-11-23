@@ -7,7 +7,10 @@ import type { OcrEngine, Quad } from "./types";
 describe("the legal line", () => {
   it("is told from a title, however the reader garbles it", () => {
     for (const t of ["T & 2026 Wizards of the Coast 2026 C8S. LEON TUKKER", "e & 2026 Wizards of he Coas UKKER 2026 CaS", "2026 CBS. M &O2026 Wizards of theCoast >HARKALÉ Lnt", "TM&O 2026 Wizards of the Coast ÞHARKALÉ LNAT"]) expect(legalLine(t)).toBe(true);
-    for (const t of ["Sunpetal Grove", "Forest", "Wizard's Retort", "Coastal Piracy", "Wizard Class", ""]) expect(legalLine(t)).toBe(false);
+    expect(legalLine("O2026 WIZARDS")).toBe(true);
+    expect(legalLine("0 2026 WZARDS OF THE COAST")).toBe(true);
+    // Real names, and Un-cards that name Wizards of the Coast (review of #205: no year in any).
+    for (const t of ["Sunpetal Grove", "Forest", "Wizard's Retort", "Coastal Piracy", "Wizard Class", "Wizards of Thay", "Of the Coast", "Wizards of the _____", "The Ultimate Nightmare of Wizards of the Coast® Customer Service", ""]) expect(legalLine(t)).toBe(false);
   });
 
   it("makes the title be read from the card's other end", async () => {

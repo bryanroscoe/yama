@@ -203,8 +203,11 @@ export async function readTitles(frame: RgbaImage, quad: Quad, ocr: OcrEngine): 
   return out;
 }
 
-/** Whether a read is a card's legal line (its copyright), which is never a card's name. */
-export const legalLine = (text: string): boolean => /wizards\s*of|of\s*the\s*coast|wizards\s*o[fr]?\s*th/i.test(text.replace(/[^A-Za-z ]/g, " ").replace(/\s+/g, " "));
+/**
+ * Whether a read is a card's legal line: its copyright year with "Wizards" or "Coast" (never a
+ * card's name: "Wizards of Thay" and the Un-cards that name Wizards of the Coast have no year).
+ */
+export const legalLine = (text: string): boolean => /(?:19|20)\d\d/.test(text) && /w\s*[il1]?\s*z\s*a\s*r\s*d|c\s*o\s*a\s*s/i.test(text);
 
 /**
  * OCR of a close-up: the person holds the camera close to the collector line or the title and

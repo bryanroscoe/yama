@@ -1173,13 +1173,18 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const where = placeLabel(to, containers) ?? "not filed anywhere";
     // Rows still waiting for their printing (card first) are saved into the new place when they settle.
     for (const a of later) patch(a.key, (x) => (x.later?.open ? { ...x, container: to } : x));
-    setMoveProgress({ done: 0, of: move.length });
+    // Counted in copies, as the button that starts it counts them (review of #205).
+    const copiesOf = (key: string) => listRef.current.find((x) => x.key === key)?.copies ?? 0;
+    const of = move.reduce((n, m) => n + copiesOf(m.key), 0);
+    let done = 0;
+    setMoveProgress({ done, of });
     setNotice(null);
     let moved = 0;
     const failed: string[] = [];
-    for (const [i, { key }] of move.entries()) {
+    for (const { key } of move) {
       if (closed.current) return;
-      setMoveProgress({ done: i, of: move.length });
+      setMoveProgress({ done, of });
+      done += copiesOf(key);
       // As it is now: a fix or Clear the list during the move (each move waits on the server) must
       // neither be undone by a plan made from the entry as it was, nor be counted as moved.
       const a = listRef.current.find((x) => x.key === key);
