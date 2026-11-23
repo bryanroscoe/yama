@@ -39,12 +39,13 @@ const { ScanToCollection } = await import("./Collection");
 
 let root: Root;
 let host: HTMLDivElement;
+let client: QueryClient;
 beforeEach(() => {
   Object.assign(got, { props: null, ops: [], made: [] });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  const client = new QueryClient();
+  client = new QueryClient();
   const router = createMemoryRouter([{ path: "/", element: <QueryClientProvider client={client}><ScanToCollection containers={[]} onClose={() => undefined} /></QueryClientProvider> }]);
   act(() => root.render(<RouterProvider router={router} />));
 });
@@ -83,5 +84,17 @@ describe("a new box from the scanner's settings", () => {
     await act(async () => void (await got.props!.onAccept!({ name: "Arcane Signet", set: "woc", number: "145", scryfall_id: "p-a", oracle_id: "o", finishes: ["nonfoil"], confidence: 1, method: "art" }, 1, false)));
     await until(() => got.ops.length === 1, "the add");
     expect(got.ops[0]).toEqual([expect.objectContaining({ kind: "add", scryfall_id: "p-a", container_id: "c-new" })]);
+  });
+
+  it("fetches the collection's pages again once the saves go quiet, not after each card", async () => {
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    await until(() => got.props, "the scanner");
+    const card = (n: string) => ({ name: "Arcane Signet", set: "woc", number: n, scryfall_id: `p-${n}`, oracle_id: "o", finishes: ["nonfoil"], confidence: 1, method: "art" as const });
+    for (const n of ["1", "2", "3"]) await act(async () => void (await got.props!.onAccept!(card(n), 1, true)));
+    await until(() => got.ops.length === 3, "three adds");
+    expect(invalidate).not.toHaveBeenCalled();
+    await until(() => invalidate.mock.calls.length > 0, "the pages fetched again");
+    await wait(300);
+    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 });

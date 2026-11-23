@@ -23,7 +23,7 @@ export const NEWS: NewsEntry[] = [
       "Scan next card, beside +1 copy, tells the scanner the card in view is a different one, such as a Forest laid on a Forest, and it reads that card.",
       "The app's camera starts on Automatic, the setting that lets the scanner step out to 0.5x for a hard card such as a foil. It now comes back to 1x as soon as the card is named. Each card has one outline around it, not two.",
       "Stuck reading a card's name up close? Back to scanning is now on the camera itself. A card held upside down has its name read from the other end.",
-      "Scan settings' Put in can make a new box, and the cards you scan next go into it.",
+      "Scan settings' Put in can make a new box, and the cards you scan next go into it. Moving the cards scanned so far says how far it has got, and a long session no longer reloads your whole collection after every card.",
     ],
     link: { to: "/collection", label: "Scan cards" },
   },
