@@ -34,7 +34,7 @@ const bundle = (): BundleInfo => ({
 });
 
 /** What lies in view: the card found first, another card, or nothing. */
-const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "weak" | "other" | "none", printings: 3, ill: 0 }));
+const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "weak" | "lookalike" | "other" | "none", printings: 3, ill: 0 }));
 
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
@@ -68,7 +68,7 @@ vi.mock("./artClient", async (original) => ({
         const quad = cam.card === "none" ? null : QUAD;
         onSeen?.(quad);
         // "weak": the card still there, its art washed out (a foil in glare): too weak to hold it.
-        const matches = cam.card === "signet" ? [{ ...signet(), score: 0.93 }] : cam.card === "weak" ? [{ ...signet(), score: 0.3 }] : cam.card === "other" ? [{ ...other, score: 0.9 }, { ...signet(), score: 0.4 }] : [];
+        const matches = cam.card === "signet" ? [{ ...signet(), score: 0.93 }] : cam.card === "weak" ? [{ ...signet(), score: 0.3 }] : cam.card === "lookalike" ? [{ ...other, score: 0.5 }, { ...signet(), score: 0.45 }] : cam.card === "other" ? [{ ...other, score: 0.9 }, { ...signet(), score: 0.4 }] : [];
         return { quad, upright: 1, matches, timings: { detectMs: 1, embedMs: 1, totalMs: 2 } };
       },
       locate: async () => {
@@ -155,11 +155,12 @@ const chip = () => document.querySelector(".scan-chip")?.textContent ?? "";
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 
 describe("a card just filed isn't scanned again while it lies there", { timeout: 20_000 }, () => {
-  function Host({ accepted }: { accepted: ScanCandidate[] }) {
+  function Host({ accepted, closeups }: { accepted: ScanCandidate[]; closeups?: boolean }) {
     const [cards, setCards] = useState<ScanCandidate[]>([]);
     return (
       <ScannerView
         autoAdd
+        closeups={closeups}
         onUndo={async () => undefined}
         onAccept={async (c) => {
           accepted.push(c);
@@ -205,10 +206,37 @@ describe("a card just filed isn't scanned again while it lies there", { timeout:
     await until(() => (accepted.length === 2 ? true : null), "the next copy filed");
   });
 
-  it("puts the guide's corners away while a card is in view, so it isn't framed twice", async () => {
+  it("keeps Still in view, with Scan next card, through a lookalike's frame, and lets go for another card matched surely", async () => {
+    cam.printings = 1;
+    const accepted: ScanCandidate[] = [];
+    // (No close-ups: the lookalike's weak frames would otherwise ask for the name up close.)
+    act(() => root.render(<Host accepted={accepted} closeups={false} />));
+    await until(() => (accepted.length === 1 ? true : null), "the card added");
+    // Glare long enough to free the art hold, a frame or two where a lookalike leads weakly, then the card again.
+    cam.card = "weak";
+    await wait(1000);
+    cam.card = "lookalike";
+    await wait(300);
+    cam.card = "signet";
+    await until(() => (chip().startsWith("Still in view") ? true : null), "still in view");
+    expect([...document.querySelectorAll(".scan-chip button")].map((b) => b.textContent)).toContain("Scan next card");
+    expect(accepted).toHaveLength(1);
+    // Another card, surely, slid on without the view clearing: it's read and filed, the one before let go.
+    cam.card = "other";
+    await until(() => (accepted.length === 2 ? true : null), "the other card filed");
+    // (This fake's printings are all Arcane Signet's: the second add is the card in view, Stridehangar.)
+    await wait(400);
+    expect(accepted).toHaveLength(2);
+  });
+
+  it("puts the guide's corners away while a card is in view, and shows them, locked, once it's found", async () => {
     act(() => root.render(<ScannerView onAccept={async () => true} />));
     const guide = await until(() => document.querySelector(".scan-guide.is-hint"), "the guide");
-    await until(() => (guide.classList.contains("is-away") ? true : null), "the corners put away");
+    cam.card = "none";
+    await until(() => (guide.classList.contains("is-away") ? null : true), "the corners shown with no card");
+    cam.card = "signet";
+    // Found (three printings, so it waits): the corners come back, locked.
+    await until(() => (document.querySelector(".scan-guide.is-locked:not(.is-away)") ? true : null), "the locked corners");
   });
 
   it("leaves the name close-up from the camera's chip, not only the sheet", async () => {

@@ -154,8 +154,11 @@ describe("the option", () => {
     // Saved with version 3, on Main, which was then the default.
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 3, on: true, lens: "main", fps: 30, torchLevel: null }));
     expect(savedNativeCamera()).toEqual({ on: true, lens: "auto", fps: 30, torchLevel: null });
+    // Main chosen while Automatic was the default (before version 3): a choice, kept.
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ lens: "main", fps: 60 }));
-    expect(savedNativeCamera()).toMatchObject({ lens: "auto", fps: 60 });
+    expect(savedNativeCamera()).toMatchObject({ lens: "main", fps: 60 });
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 2, on: true, lens: "main", fps: 30 }));
+    expect(savedNativeCamera().lens).toBe("main");
     // Automatic, or another lens, saved before: kept.
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 2, on: true, lens: "auto", fps: 30 }));
     expect(savedNativeCamera().lens).toBe("auto");

@@ -65,7 +65,7 @@ const positive = (v: unknown): v is number => typeof v === "number" && Number.is
 // camera' on by default", meaning Automatic, the phone choosing the lens). Only Automatic lets the
 // scanner step out to the 0.5x ultra-wide when a card struggles (zoomPolicy.ts, WideOnStruggle),
 // which named foils at once that sat for 20 s at 1x. Main was the only default before, so an option
-// saved before version 4 with Main takes the new default; any other lens chosen before is kept.
+// saved with version 3 with Main takes the new default; a Main chosen before (when Automatic was the default) and any other lens are kept.
 const SAVED_VERSION = 4;
 
 /**
@@ -75,8 +75,8 @@ const SAVED_VERSION = 4;
  */
 export const DEFAULT_LENS: NativeLens = "auto";
 
-/** Whether a lens saved at `version` stands, or was only the default of its day (versions 3 and 4). */
-const lensKept = (lens: NativeLens, version: number) => version >= SAVED_VERSION || lens !== "main";
+/** Whether a lens saved at `version` stands: all but a Main saved with version 3, when Main was the default. */
+const lensKept = (lens: NativeLens, version: number) => version >= SAVED_VERSION || version < 3 || lens !== "main";
 
 /** Use the app's own camera where the plugin is available unless this device opted out. */
 export function savedNativeCamera(): NativeCameraOption {

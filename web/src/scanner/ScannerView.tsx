@@ -2540,11 +2540,15 @@ function ScannerScreen({
           return false;
         }
         blockedName.current = null;
-        if (!blocked.current) setDupe(null);
+        // Freed by another card read (not the filed one): that card is what's in view now.
+        if (best && !stillFiledAs(filedName, best.name)) filedName.current = null;
+        if (!blocked.current && !filedName.current) setDupe(null);
       }
       if (!best) return false;
       // The card just filed, still in view (the view hasn't been clear since): not read again.
-      if (!single && stillFiledAs(filedName, best.name)) {
+      // Not in text-only mode: with no card finder nothing says the view has cleared, and the
+      // name hold (hold.ts, `emptyFrees`) already ends on empty reads there (review of #205).
+      if (!single && !emptyFrees && stillFiledAs(filedName, best.name)) {
         appeared.current = null;
         setStatus(NEXT);
         return false;
@@ -2686,8 +2690,8 @@ function ScannerScreen({
               }
               // A lead counts over reads in a row of one card at rest: anything else between ends it.
               if (d.kind !== "steadying" && d.kind !== "reading") leadRun.step(null);
-              const holding = !!blocked.current || !!blockedName.current || !!filedName.current;
-              if (!holding) setDupe(null);
+              const holding = !!blocked.current || !!blockedName.current;
+              if (!holding && !filedName.current) setDupe(null);
               setStatus(gateStatus(d, holding));
               return next(d.kind === "none" ? 60 : GATE_PASS_MS);
             }
@@ -2720,6 +2724,9 @@ function ScannerScreen({
           const heldIndex = blocked.current?.index;
           const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
           if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
+          // Another card matched as surely as the art hold's rule asks (another card at LOCK_TWICE):
+          // the card filed last has gone, though the view never emptied (review of #205).
+          if (r.quad && top && top.score >= LOCK_TWICE && filedName.current && !stillFiledAs(filedName, top.name)) filedName.current = null;
           // A provisional row's card (card first) is read only while it's the card held.
           if (heldLater.current && blocked.current?.index !== heldLater.current.index) heldLater.current.end();
           if (gateRead && top) gateRead.key = top.name;
@@ -2747,7 +2754,8 @@ function ScannerScreen({
           const seenNow = toVideo(r.quad);
           if (!seenQuad || !agrees(seenNow, seenQuad, FOLLOW_MOVE)) seenSince = Date.now();
           seenQuad = seenNow;
-          if (!blocked.current && !blockedName.current && !stillFiledAs(filedName, top.name)) setDupe(null);
+          // ("Still in view" stays while the card filed last holds: a lookalike's frame doesn't end it.)
+          if (!blocked.current && !blockedName.current && !filedName.current) setDupe(null);
           if (blocked.current) {
             // With the gate: the card just added, seen again, is latched; a read that didn't show
             // it (a weak match) is a miss, tried again, and the hold ends by its own rule (hold.ts).
@@ -3784,7 +3792,7 @@ function ScannerScreen({
       filedFeedback(at);
       setJustAdded((j) => (j?.later === row ? { text: `${addedWord} ${label}${at != null ? `, ${usd(at)}` : ""}`, card: onUndo || onCorrect ? card : undefined, label, found: done, printing: c } : j));
       // Still in view: "+1 copy" files another of the printing it settled on, under the settings it was scanned with.
-      if (!single && f.art && blocked.current?.index === f.art.index) setDupe({ found: done, printing: c, label, settings: settingsAt });
+      if (!single && f.art && (blocked.current?.index === f.art.index || stillFiledAs(filedName, f.name))) setDupe({ found: done, printing: c, label, settings: settingsAt });
     });
     host(row);
     filedName.current = f.name;
@@ -4436,7 +4444,7 @@ function ScannerScreen({
           {closeup ? (
             <div ref={closeRef} className={`scan-closeup is-${closeup}`} />
           ) : (
-            <div ref={guideRef} className={`scan-guide${mode === "art" ? " is-hint" : ""}${mode === "art" && cardInView ? " is-away" : ""}${phase === "found" ? " is-locked" : ""}`} />
+            <div ref={guideRef} className={`scan-guide${mode === "art" ? " is-hint" : ""}${mode === "art" && cardInView && scanningNow ? " is-away" : ""}${phase === "found" ? " is-locked" : ""}`} />
           )}
         </div>
         {onClose && (
