@@ -59,17 +59,24 @@ const positive = (v: unknown): v is number => typeof v === "number" && Number.is
  */
 //
 // Version 3 (22 Nov 2026): the main lens became the default, in place of Automatic (Bryan's Pixel
-// switched to its ultra-wide lens up close: "it looks a little distorted"). Automatic was the only
-// default before, so an option saved before version 3 with Automatic takes the new default; any
-// other lens chosen before is kept.
-const SAVED_VERSION = 3;
+// switched to its ultra-wide lens up close: "it looks a little distorted").
+//
+// Version 4 (23 Nov 2026): Automatic is the default again (Bryan: "Let's make the 'Choose your
+// camera' on by default", meaning Automatic, the phone choosing the lens). Only Automatic lets the
+// scanner step out to the 0.5x ultra-wide when a card struggles (zoomPolicy.ts, WideOnStruggle),
+// which named foils at once that sat for 20 s at 1x. Main was the only default before, so an option
+// saved with version 3 with Main takes the new default; a Main chosen before (when Automatic was the default) and any other lens are kept.
+const SAVED_VERSION = 4;
 
 /**
- * The scanner's lens unless one is chosen: the main lens, so the phone never switches to its
- * ultra-wide (softer, and bent at the edges) for a card held close. Where the phone doesn't list
- * its lenses, the camera as Android presents it, which is then its main lens.
+ * The scanner's lens unless one is chosen: Automatic, the phone's logical camera, whose zoom
+ * reaches the ultra-wide (0.5x) for a struggling card. The cost, seen on Bryan's Pixel: up close the
+ * phone may switch to its ultra-wide by itself, which softens the picture a little.
  */
-export const DEFAULT_LENS: NativeLens = "main";
+export const DEFAULT_LENS: NativeLens = "auto";
+
+/** Whether a lens saved at `version` stands: all but a Main saved with version 3, when Main was the default. */
+const lensKept = (lens: NativeLens, version: number) => version >= SAVED_VERSION || version < 3 || lens !== "main";
 
 /** Use the app's own camera where the plugin is available unless this device opted out. */
 export function savedNativeCamera(): NativeCameraOption {
@@ -80,7 +87,7 @@ export function savedNativeCamera(): NativeCameraOption {
     const version = typeof v.v === "number" ? v.v : 1;
     return {
       on: version >= 2 && typeof v.on === "boolean" ? v.on : defaults.on,
-      lens: isLens(v.lens) && (version >= SAVED_VERSION || v.lens !== "auto") ? v.lens : defaults.lens,
+      lens: isLens(v.lens) && lensKept(v.lens, version) ? v.lens : defaults.lens,
       fps: v.fps === 60 ? 60 : defaults.fps,
       torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : defaults.torchLevel,
     };

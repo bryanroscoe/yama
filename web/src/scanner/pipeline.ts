@@ -189,10 +189,25 @@ export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: Ocr
 export async function readTitles(frame: RgbaImage, quad: Quad, ocr: OcrEngine): Promise<string[]> {
   const gray = toGray(frame);
   const q = refineQuad(gray, quad) ?? quad;
-  const out: string[] = [];
-  for (const r of [NAME_REGION, ALT_NAME_REGION]) out.push((await ocr.read(crop(gray, q, r, NAME_DENSITY, true), { mode: "line" })).text);
+  const read = async (at: Quad) => {
+    const out: string[] = [];
+    for (const r of [NAME_REGION, ALT_NAME_REGION]) out.push((await ocr.read(crop(gray, at, r, NAME_DENSITY, true), { mode: "line" })).text);
+    return out;
+  };
+  const out = await read(q);
+  // A crop read the card's legal line ("© 2026 Wizards of the Coast"), printed at the bottom:
+  // the card was cut upside down, so its title is at the other end (Bryan, 23 Nov 2026: a
+  // Sunpetal Grove and a foil Forest, both cut upside down, read only that line for a minute and
+  // more until the name close-up). Read it there.
+  if (out.some(legalLine)) return read([q[2], q[3], q[0], q[1]]);
   return out;
 }
+
+/**
+ * Whether a read is a card's legal line: its copyright year with "Wizards" or "Coast" (never a
+ * card's name: "Wizards of Thay" and the Un-cards that name Wizards of the Coast have no year).
+ */
+export const legalLine = (text: string): boolean => /(?:19|20)\d\d/.test(text) && /w\s*[il1]?\s*z\s*a\s*r\s*d|c\s*o\s*a\s*s/i.test(text);
 
 /**
  * OCR of a close-up: the person holds the camera close to the collector line or the title and

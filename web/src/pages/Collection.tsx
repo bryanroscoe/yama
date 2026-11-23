@@ -53,6 +53,10 @@ const ScannedCard = lazy(() => scanner().then((m) => ({ default: m.ScannedCard }
 const KEEP_ADDING = "yama.scan.keepAdding";
 /** The close-up step, on unless turned off on this device (a fixed camera). Shared with the deck scan. */
 const CLOSEUPS = "yama.scan.closeups";
+/** How long the scanner's writes go quiet before the collection's pages are fetched again. */
+const REFRESH_QUIET_MS = 1500;
+/** "Put in"'s choice that makes a new place to file into. */
+const NEW_PLACE = "__new";
 
 /** A collection row with its printing's art crop and artist, for the art thumbnails. */
 type Item = CollectionItem & { image_art_crop?: string | null; artist?: string | null };
@@ -779,14 +783,16 @@ export function DeleteContainer({ container, parent, onClose, onDeleted }: { con
   );
 }
 
-function NewContainer({ onClose }: { onClose: () => void }) {
+/** A new binder, box, deck box or list. `onCreated` hears its id (the scanner files into it next). */
+function NewContainer({ onClose, onCreated, kind: startKind = "binder" }: { onClose: () => void; onCreated?: (id: string) => void; kind?: string }) {
   const qc = useQueryClient();
-  const [kind, setKind] = useState("binder");
+  const [kind, setKind] = useState(startKind);
   const [name, setName] = useState("");
   const create = useMutation({
-    mutationFn: () => api("/api/containers", { method: "POST", json: { kind, name } }),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["containers"] });
+    mutationFn: () => api<{ id: string }>("/api/containers", { method: "POST", json: { kind, name } }),
+    onSuccess: async (made) => {
+      await qc.invalidateQueries({ queryKey: ["containers"] });
+      if (made?.id) onCreated?.(made.id);
       onClose();
     },
   });
@@ -850,6 +856,11 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   /** The printing the found card is settled on, whose finishes the Finish choice offers. */
   const [printing, setPrinting] = useState<Printing | null>(null);
   const [container, setContainer] = useState("");
+  /** Making a new box from Scan settings (Bryan, 23 Nov 2026: "I need the ability to add a new box"). */
+  const [making, setMaking] = useState(false);
+  /** Still making it: a box made after another place was chosen meanwhile isn't switched to (Codex review of #205). */
+  const makingRef = useRef(making);
+  makingRef.current = making;
   const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
   const [closeups, setCloseups] = useState(() => localStorage.getItem(CLOSEUPS) !== "0");
   /**
@@ -911,7 +922,26 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   };
   const [reviewing, setReviewing] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const refresh = () => void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
+  /**
+   * The collection's pages fetched again after the session's writes: once they go quiet, not after
+   * each one. Every add (and every card of a Move all) refetched the whole collection list behind
+   * the scanner, so a long session or a big move did more and more of it (Bryan, 23 Nov 2026: Move
+   * all "seems like it's kind of stuck"; "my phone is starting to get a little bit hot"; "might be
+   * getting a little slower as time goes on"). Closing the scanner fetches them at once.
+   */
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshNow = () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = null;
+    void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("collection") || q.queryKey[0] === "containers" });
+  };
+  const refresh = () => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(refreshNow, REFRESH_QUIET_MS);
+  };
+  const refreshNowRef = useRef(refreshNow);
+  refreshNowRef.current = refreshNow;
+  useEffect(() => () => void (refreshTimer.current && refreshNowRef.current()), []);
 
   /**
    * Write an entry's pending ops (call inside the queue). A retry sends the very same ops (same
@@ -1124,7 +1154,9 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
 
   /** What Move all or Clear the list just did, said on the sheet and in the Added list. */
   const [notice, setNotice] = useState<string | null>(null);
-  const [moving, setMoving] = useState(false);
+  /** A Move all under way: how many of its cards are done, of how many (null when none is). */
+  const [moveProgress, setMoveProgress] = useState<{ done: number; of: number } | null>(null);
+  const moving = !!moveProgress;
   /** The scanner has closed: a Move all under way starts no more moves (Close without saving means it). */
   const closed = useRef(false);
   useEffect(() => {
@@ -1144,12 +1176,18 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const where = placeLabel(to, containers) ?? "not filed anywhere";
     // Rows still waiting for their printing (card first) are saved into the new place when they settle.
     for (const a of later) patch(a.key, (x) => (x.later?.open ? { ...x, container: to } : x));
-    setMoving(true);
+    // Counted in copies, as the button that starts it counts them (review of #205).
+    const copiesOf = (key: string) => listRef.current.find((x) => x.key === key)?.copies ?? 0;
+    const of = move.reduce((n, m) => n + copiesOf(m.key), 0);
+    let done = 0;
+    setMoveProgress({ done, of });
     setNotice(null);
     let moved = 0;
     const failed: string[] = [];
     for (const { key } of move) {
       if (closed.current) return;
+      setMoveProgress({ done, of });
+      done += copiesOf(key);
       // As it is now: a fix or Clear the list during the move (each move waits on the server) must
       // neither be undone by a plan made from the entry as it was, nor be counted as moved.
       const a = listRef.current.find((x) => x.key === key);
@@ -1162,7 +1200,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
         failed.push(a.name);
       }
     }
-    setMoving(false);
+    setMoveProgress(null);
     const parts = [moved > 0 ? `Moved ${plural(moved, "card")} ${to ? `into ${where}` : "out of their box"}.` : null];
     if (failed.length) parts.push(`Couldn't move ${failed.length === 1 ? failed[0] : `${failed.length} cards`}: open ${failed.length === 1 ? "it" : "them"} in Review all.`);
     if (busy) parts.push(`${plural(busy, "card")} still saving, so left where ${busy === 1 ? "it is" : "they are"}.`);
@@ -1231,16 +1269,26 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
         </select>
       </Field>
       <Field label="Put in">
-        <select value={container} onChange={(e) => setContainer(e.target.value)}>
+        <select
+          value={making ? NEW_PLACE : container}
+          onChange={(e) => {
+            if (e.target.value === NEW_PLACE) return setMaking(true);
+            setMaking(false);
+            setContainer(e.target.value);
+          }}
+        >
           <option value="">Not filed anywhere</option>
           {treeOrder(containers).map((c) => <option key={c.id} value={c.id}>{optionLabel(c, containers)}</option>)}
+          <option value={NEW_PLACE}>New box, binder or deck box…</option>
         </select>
       </Field>
+      {/* Made here, it's where the next cards go. */}
+      {making && <NewContainer kind="box" onClose={() => setMaking(false)} onCreated={(id) => makingRef.current && setContainer(id)} />}
       {/* A box chosen after scanning into another: the cards so far can follow it. */}
       {elsewhere > 0 && (
         <div className="scan-clear">
           <Button size="small" variant="outline" disabled={moving} onClick={() => void moveAll(container || null)}>
-            {moving ? "Moving…" : `Move the ${plural(elsewhere, "card")} scanned so far ${container ? `into ${filedIn}` : "out of their box"}`}
+            {moveProgress ? movingLabel(moveProgress) : `Move the ${plural(elsewhere, "card")} scanned so far ${container ? `into ${filedIn}` : "out of their box"}`}
           </Button>
         </div>
       )}
@@ -1317,7 +1365,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
               onRetry={retry}
               onClose={() => setReviewing(false)}
               onOpen={(a) => setOpened(a.key)}
-              actions={<MoveAllBar containers={containers} chosen={container} moving={moving} notice={notice} count={added.reduce((n, a) => n + a.copies, 0)} onMove={(to) => void moveAll(to)} onClear={() => void clearList()} />}
+              actions={<MoveAllBar containers={containers} chosen={container} moving={moveProgress} notice={notice} count={added.reduce((n, a) => n + a.copies, 0)} onMove={(to) => void moveAll(to)} onClear={() => void clearList()} />}
             />
           </Dialog>
         )}
@@ -1348,8 +1396,12 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
  * At the top of the Added list: move every card added this session into one box, or clear the list
  * (the cards stay in the collection). The box offered first is the one chosen in Scan settings.
  */
-function MoveAllBar({ containers, chosen, moving, notice, count, onMove, onClear }: { containers: Container[]; chosen: string; moving: boolean; notice: string | null; count: number; onMove: (to: string | null) => void; onClear: () => void }) {
+/** "Moving 12 of 80…": a long move says how far it has got, so it doesn't look stuck. */
+const movingLabel = (p: { done: number; of: number }) => (p.of > 1 ? `Moving ${p.done + 1} of ${p.of}…` : "Moving…");
+
+function MoveAllBar({ containers, chosen, moving: progress, notice, count, onMove, onClear }: { containers: Container[]; chosen: string; moving: { done: number; of: number } | null; notice: string | null; count: number; onMove: (to: string | null) => void; onClear: () => void }) {
   const [to, setTo] = useState(chosen);
+  const moving = !!progress;
   if (count === 0) return notice ? <p className="scan-note" role="status">{notice}</p> : null;
   return (
     <div className="scan-move-all">
@@ -1361,7 +1413,7 @@ function MoveAllBar({ containers, chosen, moving, notice, count, onMove, onClear
           </select>
         </Field>
         <Button variant="primary" disabled={moving} onClick={() => onMove(to || null)}>
-          {moving ? "Moving…" : `Move ${plural(count, "card")}`}
+          {progress ? movingLabel(progress) : `Move ${plural(count, "card")}`}
         </Button>
         <Button variant="quiet" disabled={moving} onClick={onClear}>
           Clear the list

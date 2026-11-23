@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUTO_MAX, AutoZoom, autoCeiling, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WideOnStruggle } from "./zoomPolicy";
+import { AUTO_MAX, AutoZoom, autoCeiling, CLOSE_MS, maySwitchLens, STEADY, STEP_MS, WIDE_AFTER_MS, WIDE_BACK_MS, WIDE_MAX_MS, WideOnStruggle } from "./zoomPolicy";
 import { cardHeight, LETTER_SHARE, letterPx, tooFar } from "./closer";
 import { rectQuad } from "./image";
 
@@ -81,8 +81,6 @@ describe("going wide when a card struggles", () => {
     for (; t < WIDE_AFTER_MS; t += 100) expect(w.frame(0.6, true, false, 1, t)).toBeNull();
     expect(w.frame(0.6, true, false, 1, t)).toBe(0.5);
     expect(w.isWide).toBe(true);
-    // Named now, still in view: stays wide.
-    expect(w.frame(0.3, true, true, 0.5, (t += 100))).toBeNull();
     // Gone: back to 1x after a moment.
     expect(w.frame(null, false, false, 0.5, (t += 100))).toBeNull();
     expect(w.frame(null, false, false, 0.5, (t += WIDE_BACK_MS))).toBe(1);
@@ -106,10 +104,47 @@ describe("going wide when a card struggles", () => {
     for (let t = 0; t < 3 * WIDE_AFTER_MS; t += 100) expect(one.frame(0.6, true, false, 1, t)).toBeNull();
   });
 
-  it("steps out at once when a card held at 1x overfills the view", () => {
+  it("steps out when a card held at 1x overfills the view for a moment, not on a few frames", () => {
     const w = new WideOnStruggle(pixel);
     expect(w.frame(0.9, true, false, 1, 0)).toBeNull();
     expect(w.frame(0.9, true, false, 1, 33)).toBeNull();
-    expect(w.frame(0.9, true, false, 1, 66)).toBe(0.5);
+    expect(w.frame(0.9, true, false, 1, 66)).toBeNull();
+    // Back inside the view: the moment starts again.
+    expect(w.frame(0.7, true, false, 1, 100)).toBeNull();
+    expect(w.frame(0.9, true, false, 1, 133)).toBeNull();
+    expect(w.frame(0.9, true, false, 1, 133 + CLOSE_MS - 1)).toBeNull();
+    expect(w.frame(0.9, true, false, 1, 133 + CLOSE_MS)).toBe(0.5);
+  });
+
+  it("comes back to 1x as soon as the card is named, and isn't stuck wide while cards keep coming (23 Nov 2026)", () => {
+    const w = new WideOnStruggle(pixel);
+    let t = 0;
+    for (; t < WIDE_AFTER_MS; t += 100) w.frame(0.6, true, false, 1, t);
+    expect(w.frame(0.6, true, false, 1, t)).toBe(0.5);
+    // Named at 0.5x, still in view: back to 1x now, not once the view has emptied.
+    expect(w.frame(0.3, true, true, 0.5, (t += 100))).toBe(1);
+    expect(w.isWide).toBe(false);
+    // Held while it lies there: no step out.
+    for (let i = 0; i < 50; i += 1) expect(w.frame(0.6, true, true, 1, (t += 100))).toBeNull();
+    // The next card slid on without an empty view, struggling: it may go wide in its turn.
+    for (let i = 0; i < WIDE_AFTER_MS / 100; i += 1) expect(w.frame(0.6, true, false, 1, (t += 100))).toBeNull();
+    expect(w.frame(0.6, true, false, 1, (t += 100))).toBe(0.5);
+  });
+
+  it("gives up on 0.5x when it doesn't help, and not again for that card until the view empties", () => {
+    const w = new WideOnStruggle(pixel);
+    let t = 0;
+    for (; t < WIDE_AFTER_MS; t += 100) w.frame(0.6, true, false, 1, t);
+    expect(w.frame(0.6, true, false, 1, t)).toBe(0.5);
+    const went = t;
+    for (t += 100; t < went + WIDE_MAX_MS; t += 100) expect(w.frame(0.3, true, false, 0.5, t)).toBeNull();
+    expect(w.frame(0.3, true, false, 0.5, t)).toBe(1);
+    // The same card, still unnamed at 1x: stays at 1x.
+    for (let i = 0; i < 2 * (WIDE_AFTER_MS / 100); i += 1) expect(w.frame(0.6, true, false, 1, (t += 100))).toBeNull();
+    // The view empties; the next card may go wide.
+    expect(w.frame(null, false, false, 1, (t += 100))).toBeNull();
+    expect(w.frame(null, false, false, 1, (t += WIDE_BACK_MS))).toBeNull();
+    for (let i = 0; i < WIDE_AFTER_MS / 100; i += 1) w.frame(0.6, true, false, 1, (t += 100));
+    expect(w.frame(0.6, true, false, 1, (t += 100))).toBe(0.5);
   });
 });

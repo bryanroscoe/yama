@@ -251,6 +251,20 @@ describe("the card finder in the app's own code", () => {
     expect(nat.sets).toContainEqual(expect.objectContaining({ on: true, outline: true }));
   });
 
+  it("draws no outline of its own over the app's while the app's finder draws, even on a frame it didn't hand over (23 Nov 2026)", async () => {
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 2 ? true : null), "frames matched at the app's corners");
+    // Frames the app's finder hands nothing with (it restarting after a card, a frame it timed out
+    // on): the web view's finder reads them, but its outline isn't drawn beside the app's.
+    nat.state = 0;
+    const before = nat.identified;
+    await until(() => (nat.identified >= before + 3 ? true : null), "frames read by the web view's finder");
+    await wait(100);
+    const drawn = [...document.querySelectorAll(".scan-outline g")].map((g) => Number(g.getAttribute("opacity") ?? "0"));
+    expect(drawn.every((o) => o === 0)).toBe(true);
+  });
+
   it("gives the finding back to the web view for the session when it fails", async () => {
     nat.score = 0.2;
     act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));

@@ -62,6 +62,13 @@
     linear-gradient(var(--c), var(--c)) bottom right / 2px var(--l);
   background-repeat: no-repeat;
 }
+/* A card in view has its own outline: the guide's corners step aside rather than frame it twice. */
+.scan-guide.is-hint {
+  transition: opacity 0.2s;
+}
+.scan-guide.is-hint.is-away {
+  opacity: 0;
+}
 /* Seen: the corners go full white (white is the only accent). */
 .scan-guide.is-hint.is-locked {
   --c: #fff;

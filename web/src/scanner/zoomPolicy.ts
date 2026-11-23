@@ -102,11 +102,27 @@ export const WIDE_MIN = 0.65;
 /** The view empty this long after going wide: back to 1× for the next card. */
 export const WIDE_BACK_MS = 1500;
 
+// Back sooner (Bryan, 23 Nov 2026: "It seems to get stuck zoomed out quite a bit ... Every time it
+// scans a card, it zooms out once real quick"). Waiting for an empty view kept it wide while cards
+// came one after another, and a card held close stepped out after three frames. So it now comes
+// back to 1× as soon as the card is named (going wide has done its job), after WIDE_MAX_MS at 0.5×
+// without a name (it isn't helping; not again until the view empties), and the close rule waits
+// for the card to overfill the view for CLOSE_MS, not three frames.
+
+/** Wide this long with the card still unnamed: back to 1×, and not wide again for that card. */
+export const WIDE_MAX_MS = 6000;
+/** A card held at 1× overfilling the view this long steps out wide. */
+export const CLOSE_MS = 600;
+
 export class WideOnStruggle {
   private since: number | null = null;
   private emptySince: number | null = null;
-  private close = 0;
+  private closeSince: number | null = null;
+  private wideSince = 0;
   private wide = false;
+  /** Went wide for the card in view and came back unnamed: not again until the view empties or it's named. */
+  private spent = false;
+  private wasNamed = false;
 
   constructor(private readonly range: ZoomRange) {}
 
@@ -120,6 +136,13 @@ export class WideOnStruggle {
     return this.range.min <= WIDE_MIN;
   }
 
+  private back(): number {
+    this.wide = false;
+    this.since = null;
+    this.closeSince = null;
+    return Math.max(1, this.range.min);
+  }
+
   /**
    * One frame: `share`, the card's height over the view's (null with no card in view); `steady`,
    * whether it's about where and as big as on the frame before (outline.ts `agrees`: the finder's
@@ -128,30 +151,37 @@ export class WideOnStruggle {
    */
   frame(share: number | null, steady: boolean, named: boolean, zoom: number, now: number): number | null {
     if (!this.can) return null;
+    // A card in view: seen steady (a "card" that jumps on an empty table isn't one).
+    const there = share != null && steady;
+    if (there) this.emptySince = null;
+    else this.emptySince ??= now;
+    const emptied = !there && now - this.emptySince! >= WIDE_BACK_MS;
+    // The view clear, or the card named and let go (the next card's turn): it may go wide again.
+    if (emptied || (this.wasNamed && !named)) this.spent = false;
+    this.wasNamed = named;
     if (this.wide) {
-      // A card still there: seen steady (a "card" that jumps on an empty table isn't one).
-      if (share != null && steady) {
-        this.emptySince = null;
-        return null;
+      // Named while wide: going wide has done its job, and the next card starts at 1×.
+      if (named) return this.back();
+      if (emptied) return this.back();
+      if (there && now - this.wideSince >= WIDE_MAX_MS) {
+        this.spent = true;
+        return this.back();
       }
-      this.emptySince ??= now;
-      if (now - this.emptySince < WIDE_BACK_MS) return null;
-      this.wide = false;
-      this.since = null;
-      this.emptySince = null;
-      this.close = 0;
-      return Math.max(1, this.range.min);
+      return null;
     }
-    if (share == null || !steady || named) {
+    if (!there || named || this.spent) {
       this.since = null;
-      this.close = 0;
+      this.closeSince = null;
       return null;
     }
     this.since ??= now;
-    this.close = share > FILL_HIGH && zoom <= 1.05 ? this.close + 1 : 0;
-    if (now - this.since < WIDE_AFTER_MS && this.close < STEADY) return null;
+    if (share > FILL_HIGH && zoom <= 1.05) this.closeSince ??= now;
+    else this.closeSince = null;
+    const struggling = now - this.since >= WIDE_AFTER_MS;
+    const overfills = this.closeSince != null && now - this.closeSince >= CLOSE_MS;
+    if (!struggling && !overfills) return null;
     this.wide = true;
-    this.emptySince = null;
+    this.wideSince = now;
     return round(Math.max(this.range.min, WIDE_ZOOM));
   }
 }
