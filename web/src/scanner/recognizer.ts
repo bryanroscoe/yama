@@ -11,6 +11,7 @@
 import { isCardBack } from "./cardBack";
 import { artGlare } from "./glare";
 import { cardSheen, type Sheen } from "./foil";
+import { cardShaped } from "./cardShape";
 import { artLead, LEAD_MARGIN } from "./fuse";
 import { cardThumb, frameSharpness } from "./gateFrame";
 import { fromBase64, galleryOf, readGallery, upTo, type Gallery } from "./gallery";
@@ -629,7 +630,8 @@ export async function createRecognizer(
       if (coarse.vote < EMPTY && whole > constants.scene * 1.1) coarse = await detect(frame, { ...centre, side: whole }, detector, runs);
       fine = coarse.vote >= EMPTY ? await detect(frame, around(coarse), detector, runs) : coarse;
     }
-    const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardDetail(frame, fine.quad) >= MIN_DETAIL;
+    // (And card-shaped, cardShape.ts: a column or a sliver isn't one card.)
+    const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardShaped(fine.quad) && cardDetail(frame, fine.quad) >= MIN_DETAIL;
     tracked = inView ? around(fine) : null;
     trackedFor = inView && wasTracking ? trackedFor + 1 : 0;
     return { fine, inView };
@@ -637,7 +639,8 @@ export async function createRecognizer(
 
   const locate = async (frame: RgbaImage, handed?: Handed): Promise<Located> => {
     const t0 = now();
-    const { fine, inView } = handed ? { fine: { quad: handed.quad!, vote: handed.upright ?? (handed.quad ? 1 : 0) }, inView: !!handed.quad } : await find(frame);
+    // (The app's finder's outline too must be card-shaped, cardShape.ts.)
+    const { fine, inView } = handed ? { fine: { quad: handed.quad!, vote: handed.upright ?? (handed.quad ? 1 : 0) }, inView: !!handed.quad && cardShaped(handed.quad) } : await find(frame);
     if (!inView) return { quad: null, upright: fine.vote, detectMs: now() - t0 };
     const back = isCardBack(frame, fine.quad);
     return { quad: fine.quad, upright: fine.vote, ...(back ? { back } : {}), sharpness: frameSharpness(frame, fine.quad), thumb: cardThumb(frame, fine.quad), detectMs: now() - t0 };
@@ -649,7 +652,8 @@ export async function createRecognizer(
     const runs = noRuns();
     const remote: RemoteRun | undefined = opts.remote ? { embed: opts.remote, reads: 0, ms: [] } : undefined;
     const upright = handed.upright ?? (handed.quad ? 1 : 0);
-    if (!handed.quad) {
+    // No card, or the app's finder outlined something that isn't one (cardShape.ts): nothing to match.
+    if (!handed.quad || !cardShaped(handed.quad)) {
       turns.forget();
       return { quad: null, upright, matches: [], pool: pool && gallery ? [] : undefined, timings: { detectMs: 0, embedMs: 0, totalMs: now() - t0, cuts: 0, runs } };
     }
@@ -691,7 +695,7 @@ export async function createRecognizer(
     const t0 = now();
     const runs = noRuns();
     // The gate's read: the finder already placed the card in this frame (`locate`).
-    const { fine, inView } = at ? { fine: { quad: at, vote: 1 }, inView: true } : await find(frame, runs);
+    const { fine, inView } = at ? { fine: { quad: at, vote: 1 }, inView: cardShaped(at) } : await find(frame, runs);
     const t1 = now();
     onSeen?.(inView ? fine.quad : null);
     const back = inView && isCardBack(frame, fine.quad);
