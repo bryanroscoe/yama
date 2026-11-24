@@ -21,7 +21,7 @@
 // on a frame from the page (the speed test).
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
-import { cameraInfo } from "./camera";
+import { cameraInfo, type ExposureSetter } from "./camera";
 import { CUT_SIDE, cutBox, draw, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
 import { RECOGNIZER_SHORT_SIDE } from "./artClient";
 import { canFit, DEFAULT_ASPECT, fitPicture } from "./fit";
@@ -41,6 +41,12 @@ export interface NativeCameraOption {
   fps: number;
   /** The flashlight's strength (1 up to what the phone has), or null for the phone's own. */
   torchLevel: number | null;
+  /**
+   * Exposure compensation in EV (0, the camera's own; lower is darker), set as the camera opens and
+   * kept to its range and step there. Since 23 Nov 2026 (Bryan: foils' glare blows out the art,
+   * and less exposure keeps the detail under the sheen).
+   */
+  exposure: number;
 }
 
 /** On this device: whether the scanner uses the app's own camera, and how it's set. */
@@ -48,6 +54,10 @@ export const NATIVE_CAMERA_KEY = "yama.scan.nativeCamera";
 
 const isLens = (v: unknown): v is NativeLens => v === "auto" || v === "main" || v === "ultrawide" || v === "telephoto";
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v > 0;
+/** No phone's exposure goes further than this either way; a saved value beyond it is malformed. */
+const EXPOSURE_LIMIT = 10;
+/** A saved exposure: a number of EV within the limit, to 3 decimals, else 0. */
+const exposureOf = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= EXPOSURE_LIMIT ? Math.round(v * 1000) / 1000 || 0 : 0);
 
 /**
  * The saved option's version. Until 22 Nov 2026 (PR #193) the app's camera was opt-in, and any
@@ -66,6 +76,10 @@ const positive = (v: unknown): v is number => typeof v === "number" && Number.is
 // scanner step out to the 0.5x ultra-wide when a card struggles (zoomPolicy.ts, WideOnStruggle),
 // which named foils at once that sat for 20 s at 1x. Main was the only default before, so an option
 // saved with version 3 with Main takes the new default; a Main chosen before (when Automatic was the default) and any other lens are kept.
+//
+// `exposure` (23 Nov 2026) came without a new version: an option saved before it has none, which
+// reads as 0, the camera's own, exactly what those phones had. Bump the version only when a field's
+// meaning changes, and keep `lensKept` reading version 3 and 4 as they are.
 const SAVED_VERSION = 4;
 
 /**
@@ -80,7 +94,7 @@ const lensKept = (lens: NativeLens, version: number) => version >= SAVED_VERSION
 
 /** Use the app's own camera where the plugin is available unless this device opted out. */
 export function savedNativeCamera(): NativeCameraOption {
-  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: DEFAULT_LENS, fps: 30, torchLevel: null };
+  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: DEFAULT_LENS, fps: 30, torchLevel: null, exposure: 0 };
   try {
     const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as (Partial<NativeCameraOption> & { v?: unknown }) | null;
     if (!v || typeof v !== "object") return defaults;
@@ -90,6 +104,7 @@ export function savedNativeCamera(): NativeCameraOption {
       lens: isLens(v.lens) && lensKept(v.lens, version) ? v.lens : defaults.lens,
       fps: v.fps === 60 ? 60 : defaults.fps,
       torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : defaults.torchLevel,
+      exposure: exposureOf(v.exposure),
     };
   } catch {
     return defaults;
@@ -98,7 +113,7 @@ export function savedNativeCamera(): NativeCameraOption {
 
 export function saveNativeCamera(o: NativeCameraOption) {
   try {
-    localStorage.setItem(NATIVE_CAMERA_KEY, JSON.stringify({ v: SAVED_VERSION, on: o.on, lens: o.lens, fps: o.fps, torchLevel: o.torchLevel }));
+    localStorage.setItem(NATIVE_CAMERA_KEY, JSON.stringify({ v: SAVED_VERSION, on: o.on, lens: o.lens, fps: o.fps, torchLevel: o.torchLevel, exposure: exposureOf(o.exposure) }));
   } catch {
     /* storage off */
   }
@@ -149,6 +164,34 @@ export interface NativeDescribed {
   focusFarthest?: number;
   /** The app's own card finder (NativeFinder.java), where this APK has it. */
   finder?: NativeFinderStatus;
+  /** Exposure compensation (APKs since 23 Nov 2026; an older one doesn't say, and can't set it). */
+  exposure?: NativeExposure;
+}
+
+/**
+ * The camera's exposure compensation (CameraX's ExposureState). EV is the index times the step;
+ * the step is also given as the camera's own fraction (1/6, 1/3, 1/2). The rest is present only
+ * where `supported`.
+ */
+export interface NativeExposure {
+  supported: boolean;
+  /** EV: the range, the step and where it is now. */
+  min?: number;
+  max?: number;
+  step?: number;
+  ev?: number;
+  /** As the camera counts: the index now, its range, and the step as [numerator, denominator]. */
+  index?: number;
+  minIndex?: number;
+  maxIndex?: number;
+  stepRational?: [number, number];
+}
+
+/** The exposure range a camera offers, in EV, or null where it can't be changed. */
+export function exposureRange(e: NativeExposure | undefined | null): { min: number; max: number; step: number } | null {
+  if (!e?.supported) return null;
+  const { min, max, step } = e;
+  return typeof min === "number" && typeof max === "number" && typeof step === "number" && Number.isFinite(min) && Number.isFinite(max) && step > 0 && max > min ? { min, max, step } : null;
 }
 
 /** What the app's card finder is doing. */
@@ -213,6 +256,8 @@ export interface NativeSet {
   focusMode?: "continuous" | "manual";
   focusDistance?: number;
   point?: { x: number; y: number };
+  /** Exposure compensation in EV: the app sets the nearest step, within the camera's range. */
+  exposure?: number;
 }
 
 export interface FrameRequest {
@@ -465,6 +510,11 @@ export interface NativeCameraRequest {
   width: number;
   height: number;
   torchLevel?: number | null;
+  /**
+   * The exposure (EV) to set once the camera delivers frames, before `ready`: left out, the one
+   * saved on this device (`savedNativeCamera`). 0 or a camera that can't sets nothing.
+   */
+  exposure?: number | null;
 }
 
 /** One way of crossing the bridge, timed (ms, medians). */
@@ -489,6 +539,12 @@ export interface NativeCamera extends CameraSource {
   described(): NativeDescribed | null;
   /** The flashlight's strength from now on (and now, if it's lit). */
   setTorchLevel(level: number | null): Promise<void>;
+  /**
+   * The exposure (EV) now, from Scan settings, once the camera is ready: through the camera
+   * controls this camera is attached to (camera.tsx, so their `exposure` stays true), else straight
+   * to the camera. Whether it took it. `cancelled` is asked right before it reaches the camera.
+   */
+  setExposure: ExposureSetter;
   /** Time every way a frame can cross to the page. */
   bench(frames?: number): Promise<BenchRow[]>;
   /**
@@ -563,9 +619,12 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   let torchLevel: number | null = positiveOrNull(req.torchLevel);
   /** What the track's callers last asked for, so a repeat isn't sent again. */
   const cleanups: (() => void)[] = [];
-  const sent: { zoom?: number; torch?: boolean; focus?: string; point?: string } = {};
+  const sent: { zoom?: number; torch?: boolean; focus?: string; point?: string; exposure?: number } = {};
+  /** The camera controls' own exposure setter for this camera, while they hold it (camera.tsx, `ExposureBound`). */
+  let lentExposure: ExposureSetter | null = null;
   // Away and back, the camera starts again with its flashlight off and its focus its own: what
-  // was sent is forgotten, so the next change sends everything camera.tsx holds.
+  // was sent is forgotten, so the next change sends everything camera.tsx holds. (The exposure the
+  // app sets again by itself as the camera reopens, ScannerCameraPlugin.watchExposure.)
   const forget = () => {
     if (document.visibilityState === "visible") for (const k of Object.keys(sent) as (keyof typeof sent)[]) delete sent[k];
   };
@@ -623,8 +682,9 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     described = { ...(described as NativeDescribed), ...(await plugin.set(patch)) };
   };
 
-  // The camera's controls, shaped as the track camera.tsx drives: zoom, torch, focus and a point
-  // to focus on arrive as constraints and leave as plugin calls.
+  // The camera's controls, shaped as the track camera.tsx drives: zoom, torch, focus, a point to
+  // focus on and the exposure arrive as constraints and leave as plugin calls. The exposure is a
+  // browser's `exposureCompensation`, in EV, as Chrome's own track takes it.
   const track = {
     kind: "video",
     get label() {
@@ -639,12 +699,24 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
         focusMode: d.focusNearest != null ? ["continuous", "manual"] : ["continuous"],
         ...(d.focusNearest != null && d.focusFarthest != null ? { focusDistance: { min: d.focusNearest, max: d.focusFarthest, step: 0.01 } } : {}),
         ...(d.width && d.height ? { width: { max: d.width }, height: { max: d.height } } : {}),
+        ...(exposureRange(d.exposure) ? { exposureCompensation: exposureRange(d.exposure)! } : {}),
       };
     },
     getSettings() {
       const d = described;
       if (!d) return {};
-      return { deviceId: `native:${d.lens}`, facingMode: "environment", width: d.width, height: d.height, frameRate: d.fps ?? d.fpsRange?.[1], zoom: d.zoom, torch: d.torch, focusMode: d.focusMode, focusDistance: d.focusDistance };
+      return {
+        deviceId: `native:${d.lens}`,
+        facingMode: "environment",
+        width: d.width,
+        height: d.height,
+        frameRate: d.fps ?? d.fpsRange?.[1],
+        zoom: d.zoom,
+        torch: d.torch,
+        focusMode: d.focusMode,
+        focusDistance: d.focusDistance,
+        ...(exposureRange(d.exposure) && typeof d.exposure?.ev === "number" ? { exposureCompensation: d.exposure.ev } : {}),
+      };
     },
     async applyConstraints(c?: MediaTrackConstraints) {
       if (closed || !described) return;
@@ -677,11 +749,22 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
         next.point = point;
         patch.point = { x: p.x, y: p.y };
       }
+      const ev = adv.exposureCompensation;
+      if (typeof ev === "number" && ev !== sent.exposure) {
+        // An APK from before exposure would take the call and ignore it: refused here, loudly.
+        if (!Number.isFinite(ev) || !exposureRange(described.exposure)) throw new Error("This camera's exposure can't be changed");
+        patch.exposure = ev;
+        next.exposure = ev;
+      }
       if (!Object.keys(patch).length) return;
       await set(patch);
       Object.assign(sent, next);
     },
     stop() {},
+    /** camera.tsx lends its exposure setter for this camera while this is the track it controls. */
+    bindExposure(set: ExposureSetter | null) {
+      lentExposure = set;
+    },
   } as unknown as MediaStreamTrack;
 
   const info = (): SourceInfo | null => {
@@ -788,6 +871,11 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       await close();
       throw new Error("The app's camera didn't deliver a frame");
     }
+    // The exposure chosen in Scan settings, set while the camera runs and before anyone reads its
+    // settings, so camera.tsx starts from what the camera is at. Refused, the camera keeps its own.
+    const ev = req.exposure !== undefined ? (req.exposure ?? 0) : savedNativeCamera().exposure;
+    if (ev && exposureRange(described.exposure)) await track.applyConstraints({ advanced: [{ exposureCompensation: ev } as MediaTrackConstraintSet] }).catch(() => undefined);
+    if (closed) throw new Error("The camera closed");
     // The capture rate the camera really delivers, and the lens the phone is using, are known
     // once it has run a moment, and can change: asked now and then, told when they differ.
     let told = "";
@@ -859,6 +947,25 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       torchLevel = positiveOrNull(level);
       if (closed || !described || !described.torch || !torchLevel || described.torchLevels <= 1) return;
       await set({ torch: true, torchLevel });
+    },
+    async setExposure(ev, cancelled) {
+      if (closed || !Number.isFinite(ev)) return false;
+      // Never while the camera opens: that sets the saved exposure, and a change now would cancel
+      // it in CameraX and land outside camera.tsx's queue. Once ready, the scanner has attached the
+      // camera (its `ready.then` was first) and lent its setter (Codex review of #210).
+      try {
+        await ready;
+      } catch {
+        return false;
+      }
+      if (closed || !described || cancelled?.()) return false;
+      if (lentExposure) return lentExposure(ev, cancelled);
+      try {
+        await track.applyConstraints({ advanced: [{ exposureCompensation: ev } as MediaTrackConstraintSet] });
+        return true;
+      } catch {
+        return false;
+      }
     },
     async bench(frames = 15) {
       if (closed || !described) throw new Error("The camera isn't open");

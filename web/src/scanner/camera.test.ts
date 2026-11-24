@@ -4,15 +4,15 @@ import { LENS_SWITCH } from "./zoomPolicy";
 
 describe("camera zoom and constraints (review of #145)", () => {
   it("never steps + past 4×, below the lens switch, whatever the camera's own top end", () => {
-    const caps = { torch: false, zoom: { min: 1, max: 10 } };
+    const caps = { torch: false, exposure: null, zoom: { min: 1, max: 10 } };
     expect(HAND_MAX).toBeLessThan(LENS_SWITCH);
     expect(zoomTop(caps)).toBe(4);
     expect(zoomSteps(caps, 4).above).toBeUndefined();
     expect(zoomSteps(caps, 3).above).toBe(4);
     // A camera that zooms less than that: its own top end.
-    expect(zoomTop({ torch: false, zoom: { min: 1, max: 2.5 } })).toBe(2.5);
+    expect(zoomTop({ torch: false, exposure: null, zoom: { min: 1, max: 2.5 } })).toBe(2.5);
     // Digital zoom: its own limit.
-    expect(zoomTop({ torch: false, zoom: null })).toBe(3);
+    expect(zoomTop({ torch: false, exposure: null, zoom: null })).toBe(3);
   });
 
   it("applies focus and zoom one at a time, each on top of the other, never losing one", async () => {

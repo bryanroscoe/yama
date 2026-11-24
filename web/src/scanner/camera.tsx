@@ -2,6 +2,8 @@
 // browser exposes the camera's torch (Chrome on Android; not Safari). Zoom uses the camera's own
 // zoom where the browser exposes it, else a digital zoom: the view is enlarged and the recognizer
 // is given the middle of the frame, so a small or far card is seen with more of the camera's pixels.
+// Exposure (23 Nov 2026) is offered where the camera says it can change it: Chrome's track as the
+// browser exposes it, and the Android app's own camera (nativeCamera.ts).
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../components/ui";
@@ -11,9 +13,34 @@ export interface CameraCaps {
   torch: boolean;
   /** The camera's own zoom range, when the browser exposes it. */
   zoom: { min: number; max: number } | null;
+  /** Exposure compensation in EV (`exposureCompensation`), where the camera can change it. */
+  exposure: ExposureCaps | null;
 }
 
-const NO_CAPS: CameraCaps = { torch: false, zoom: null };
+/** Exposure compensation in EV: from `min` to `max` in steps of `step`, 0 being the camera's own. */
+export interface ExposureCaps {
+  min: number;
+  max: number;
+  step: number;
+}
+
+const NO_CAPS: CameraCaps = { torch: false, zoom: null, exposure: null };
+
+/**
+ * A track that can itself be asked to change its exposure (the app's own camera, from Scan
+ * settings: nativeCamera.ts). The camera controls hand it their setter, bound to that track, while
+ * it's the one they control, so every change goes through the one serial applier and `exposure`
+ * says what the camera was last set to.
+ */
+export interface ExposureBound {
+  bindExposure?(set: ExposureSetter | null): void;
+}
+
+/**
+ * Set the exposure (EV): whether the camera took it. `cancelled`, asked right before the change is
+ * applied, drops it (Scan settings closed while it queued behind other camera changes).
+ */
+export type ExposureSetter = (ev: number, cancelled?: () => boolean) => Promise<boolean>;
 /** Zoom levels offered, kept to what the camera allows. */
 const LEVELS = [1, 1.5, 2, 3, 4];
 /** Digital zoom stops here: past it the frame is too few pixels to be worth it. */
@@ -53,9 +80,10 @@ export function serialApplier(apply: (t: MediaStreamTrack, all: Record<string, u
       chain = p.catch(() => undefined);
       return p;
     },
-    set(t: MediaStreamTrack, patch: Record<string, unknown>): Promise<boolean> {
+    /** `skip`: asked right before it's applied; true drops it (its caller went away while it queued). */
+    set(t: MediaStreamTrack, patch: Record<string, unknown>, skip?: () => boolean): Promise<boolean> {
       const run = async () => {
-        if (current() !== t) return false;
+        if (current() !== t || skip?.()) return false;
         // A setting given as undefined is taken out (a pinned focus distance, once focus is automatic).
         const next = Object.fromEntries(Object.entries({ ...applied, ...patch }).filter(([, v]) => v !== undefined));
         await apply(t, next);
@@ -71,9 +99,24 @@ export function serialApplier(apply: (t: MediaStreamTrack, all: Record<string, u
 }
 
 export function readCaps(track: MediaStreamTrack): CameraCaps {
-  const caps = (track.getCapabilities?.() ?? {}) as { torch?: boolean; zoom?: { min?: number; max?: number } };
+  const caps = (track.getCapabilities?.() ?? {}) as { torch?: boolean; zoom?: { min?: number; max?: number }; exposureCompensation?: { min?: number; max?: number; step?: number } };
   const zoom = caps.zoom && typeof caps.zoom.max === "number" && caps.zoom.max > (caps.zoom.min ?? 1) ? { min: caps.zoom.min ?? 1, max: caps.zoom.max } : null;
-  return { torch: caps.torch === true, zoom };
+  const e = caps.exposureCompensation;
+  // A camera that can't change it says a range of 0 to 0, or a step of 0.
+  const exposure = e && fin(e.min) && fin(e.max) && fin(e.step) && e.step > 0 && e.max > e.min ? { min: e.min, max: e.max, step: e.step } : null;
+  return { torch: caps.torch === true, zoom, exposure };
+}
+
+const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/**
+ * An exposure for this camera: the nearest step to `ev` (the steps count from 0, the camera's
+ * own, as Android's and Chrome's do), within its range, to 3 decimals.
+ */
+export function clampExposure(range: ExposureCaps, ev: number): number {
+  const stepped = Math.round(ev / range.step) * range.step;
+  const within = Math.min(range.max, Math.max(range.min, stepped));
+  return Math.round(within * 1000) / 1000 || 0;
 }
 
 /**
@@ -141,6 +184,9 @@ export interface CameraInfo {
   maxFrameRate?: number;
   zoom?: number;
   zoomRange?: [number, number];
+  /** Exposure compensation now and its range, in EV, where the camera says. */
+  exposure?: number;
+  exposureRange?: [number, number];
   facing?: string;
   focusMode?: string;
   focusModes?: string[];
@@ -155,9 +201,10 @@ export interface CameraInfo {
 
 /** The track's settings and capabilities, in one plain object. */
 export function cameraInfo(track: MediaStreamTrack): CameraInfo {
-  const st = (track.getSettings?.() ?? {}) as MediaTrackSettings & { zoom?: number; focusMode?: string; focusDistance?: number; resizeMode?: string };
+  const st = (track.getSettings?.() ?? {}) as MediaTrackSettings & { zoom?: number; focusMode?: string; focusDistance?: number; resizeMode?: string; exposureCompensation?: number };
   const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & {
     zoom?: { min?: number; max?: number };
+    exposureCompensation?: { min?: number; max?: number };
     focusMode?: string[];
     focusDistance?: { min?: number; max?: number };
     torch?: boolean;
@@ -172,6 +219,8 @@ export function cameraInfo(track: MediaStreamTrack): CameraInfo {
     maxFrameRate: caps.frameRate?.max,
     zoom: st.zoom,
     zoomRange: range(caps.zoom),
+    exposure: st.exposureCompensation,
+    exposureRange: range(caps.exposureCompensation),
     facing: st.facingMode,
     focusMode: st.focusMode,
     focusModes: caps.focusMode,
@@ -198,6 +247,8 @@ export function useCameraControls() {
   const [caps, setCaps] = useState<CameraCaps>(NO_CAPS);
   const [torch, setTorchState] = useState(false);
   const [zoom, setZoomState] = useState(1);
+  /** The exposure compensation the camera open now was last set to (EV; 0 is the camera's own). */
+  const [exposure, setExposureState] = useState(0);
   const [error, setError] = useState<string | null>(null);
   /** Where the lens can be pinned on this camera (cameraFocus.ts), and where it is pinned now (null: autofocus). */
   const [focusCaps, setFocusCaps] = useState<FocusRange | null>(null);
@@ -205,12 +256,38 @@ export function useCameraControls() {
   const focusRef = useRef<{ range: FocusRange | null; pinned: number | null }>({ range: null, pinned: null });
   /** Every setting applied so far, sent together (one applyConstraints can replace the last), one change at a time. */
   const applier = useRef(serialApplier((t, all) => t.applyConstraints({ advanced: [all as MediaTrackConstraintSet] }), () => track.current));
-  const apply = (t: MediaStreamTrack, patch: Record<string, unknown>) => applier.current.set(t, patch);
+  const apply = (t: MediaStreamTrack, patch: Record<string, unknown>, skip?: () => boolean) => applier.current.set(t, patch, skip);
   /** The capabilities of the camera open now (the state above is for rendering). */
   const capsRef = useRef<CameraCaps>(NO_CAPS);
   /** The person zoomed (+, − or a pinch): auto-zoom leaves it to them for the session. */
   const userZoomed = useRef(false);
+  /**
+   * Set the exposure compensation (EV, kept to the camera's range and step; 0 is the camera's own):
+   * whether `t`, the camera open now, took it (false: another camera by then, none to change, or refused).
+   */
+  const exposeOn = useCallback(async (t: MediaStreamTrack | null, ev: number, cancelled?: () => boolean): Promise<boolean> => {
+    const range = capsRef.current.exposure;
+    if (!t || track.current !== t || !range || !Number.isFinite(ev) || cancelled?.()) return false;
+    const want = clampExposure(range, ev);
+    try {
+      // Only for the camera it was meant for (another may be open by the time it's done), and not
+      // if its caller went away while it queued.
+      if (!(await apply(t, { exposureCompensation: want }, cancelled))) return false;
+      if (track.current !== t) return false;
+      // What the camera says it's at, where it says.
+      const reported = (t.getSettings?.() as { exposureCompensation?: number } | undefined)?.exposureCompensation;
+      setExposureState(fin(reported) ? reported : want);
+      setError(null);
+      return true;
+    } catch {
+      if (track.current === t) setError("The camera didn't change its exposure");
+      return false;
+    }
+  }, []);
+  const setExposure = useCallback<ExposureSetter>((ev, cancelled) => exposeOn(track.current, ev, cancelled), [exposeOn]);
   const attach = useCallback((t: MediaStreamTrack | null) => {
+    // The camera let go no longer changes its exposure through these controls.
+    if (track.current !== t) (track.current as ExposureBound | null)?.bindExposure?.(null);
     track.current = t;
     const caps = (t?.getCapabilities?.() ?? {}) as { focusMode?: string[] };
     // The lens pinned on this device before stays pinned, where this camera can (cameraFocus.ts).
@@ -237,6 +314,11 @@ export function useCameraControls() {
     setCaps(capsRef.current);
     setTorchState(false);
     setZoomState(1);
+    // Never the last camera's: where this one is now, which is 0 (its own) unless it was opened at
+    // the exposure chosen in Scan settings (the app's camera, nativeCamera.ts).
+    const now = (t?.getSettings?.() as { exposureCompensation?: number } | undefined)?.exposureCompensation;
+    setExposureState(capsRef.current.exposure && fin(now) ? now : 0);
+    if (t) (t as ExposureBound).bindExposure?.((ev, cancelled) => exposeOn(t, ev, cancelled));
     setError(null);
   }, []);
   /** The person has used the flashlight button this session: the scanner then never touches it (glare.ts TorchOnStruggle). */
@@ -394,6 +476,9 @@ export function useCameraControls() {
     ),
     /** Whether the person has used the flashlight button this session. */
     torchTouched: useCallback(() => torchByPerson.current, []),
+    /** The exposure compensation the camera was last set to (EV), and setting it; `caps.exposure` says whether it can. */
+    exposure,
+    setExposure,
     zoom,
     autoZoom,
     focusAt,
