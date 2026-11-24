@@ -128,9 +128,41 @@ describe("ExposureOnGlare", () => {
     expect(e.isDown).toBe(true);
     // Stays down while the card is read, glare or not.
     expect(e.frame(false, true, 2000, -1, range)).toBeNull();
-    // Named (or gone): back to where it was.
+    // Named (or gone): back to where it was, once the camera has taken it.
     expect(e.frame(false, false, 3000, -1, range)).toBe(0);
+    expect(e.isDown).toBe(true);
+    e.restored(true);
     expect(e.isDown).toBe(false);
+  });
+
+  it("keeps where it came from until the camera has gone back, and lowers nothing meanwhile (Codex review of #212)", () => {
+    const e = new ExposureOnGlare();
+    e.frame(true, true, 0, 0, range);
+    e.frame(true, true, EXPOSE_GLARE_MS, 0, range);
+    expect(e.frame(false, false, 2000, -1, range)).toBe(0);
+    // The next glary card while that restore is on its way: not lowered from the old -1.
+    expect(e.frame(true, true, 2100, -1, range)).toBeNull();
+    expect(e.frame(true, true, 2100 + EXPOSE_GLARE_MS, -1, range)).toBeNull();
+    // Refused: asked again, from 0, on a later frame; then taken.
+    e.restored(false);
+    expect(e.frame(false, false, 4000, -1, range)).toBe(0);
+    e.restored(true);
+    expect(e.isDown).toBe(false);
+    // From there the next card starts from 0.
+    e.frame(true, true, 5000, 0, range);
+    expect(e.frame(true, true, 5000 + EXPOSE_GLARE_MS, 0, range)).toBe(-GLARE_EV);
+    // Refused again and again: let go after a few tries; and another camera forgets it at once.
+    for (let i = 0; i < 3; i += 1) {
+      e.frame(false, false, 7000 + i, -1, range);
+      e.restored(false);
+    }
+    expect(e.isDown).toBe(false);
+    const f = new ExposureOnGlare();
+    f.frame(true, true, 0, 0, range);
+    f.frame(true, true, EXPOSE_GLARE_MS, 0, range);
+    f.forget();
+    expect(f.isDown).toBe(false);
+    expect(f.frame(false, false, 3000, -1, range)).toBeNull();
   });
 
   it("leaves the person's own exposure: from where they set it, and as they move it while down", () => {

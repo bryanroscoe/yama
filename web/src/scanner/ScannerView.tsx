@@ -1463,6 +1463,8 @@ function ScannerScreen({
   const haltReaders = () => {
     camGen.current += 1;
     for (const halt of readers.current) halt();
+    // Another camera: an exposure lowered for glare on the last one is nothing to put back on it.
+    exposeGlare.current.forget();
     // A provisional row stops reading its card too (card first): the new camera's frames are another view.
     heldLater.current?.end();
     firstEvidence.current = null;
@@ -1539,12 +1541,15 @@ function ScannerScreen({
     zoomVerdict(false, mayName);
   };
   /** The view clear of cards: the next card's glare is its own. */
-  const clearGlare = () => {
-    glareWatch.current.reset();
-    // The exposure back where the person had it, once the card it went down for is named or gone.
+  /** The exposure back where the person had it, once the card it went down for is named or gone. */
+  const restoreExposure = () => {
     const c = camRef.current;
     const back = exposeGlare.current.frame(false, false, performance.now(), c.exposure, c.caps.exposure);
-    if (back != null) void c.setExposure(back);
+    if (back != null) void c.setExposure(back).then((ok) => exposeGlare.current.restored(ok));
+  };
+  const clearGlare = () => {
+    glareWatch.current.reset();
+    restoreExposure();
     glareNow.current = { glary: false, hint: false };
     // (So a flashlight the person turned back on after it went off is known to be theirs.)
     torchHelp.current.frame(false, camRef.current.torch, performance.now(), { person: camRef.current.torchTouched() });
@@ -2967,6 +2972,8 @@ function ScannerScreen({
               if (latchedHeld) notSeeking();
               else zoomVerdict(!seekingRef.current);
               if (!holding && !filedName.current) setDupe(null);
+              // The gate has stopped reading it (five tries): the exposure back until it moves.
+              if (d.kind === "no-match") restoreExposure();
               // (What to do about the glare on a card being read stays said between its reads.)
               // (Not over "No match, move the card": moving it is what starts the reads again.)
               const says = seekingRef.current && d.kind !== "none" && d.kind !== "no-match" ? glareText() : null;
@@ -3865,7 +3872,7 @@ function ScannerScreen({
         if (sw < 8 || sh < 8) return next(200);
         const h = CLOSEUP_HEIGHT[closeup];
         // (A card named here gets this frame's zoom and flashlight in its timing record.)
-        frameCam.current = { zoom: camRef.current.zoom, torch: camRef.current.torch };
+        frameCam.current = { zoom: camRef.current.zoom, torch: camRef.current.torch, exposure: camRef.current.exposure };
         const image = await camSrc().region({ x: sx, y: sy, w: sw, h: sh }, (sw * h) / sh, h, hiCanvasRef.current);
         if (stop) return;
         const text = await readCloseup(image, closeup, await ocrEngine());

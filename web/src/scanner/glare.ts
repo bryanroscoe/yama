@@ -156,34 +156,47 @@ export interface ExposureRange {
   step: number;
 }
 
+/** A restore the camera refused is asked again this many times, then let go. */
+const RESTORE_TRIES = 3;
+
 /**
  * The exposure down while glare stays on the art of a card being read, and back to where the person
  * had it (Scan settings) once that card is named or gone. Theirs stands: moved while down, it's left
- * where they put it. `frame` says the exposure to set now (or null); `answered` whether it was taken.
+ * where they put it. `frame` says the exposure to set now (or null); `answered` whether a lowering
+ * was taken, `restored` whether a restore was: until the camera has gone back, the exposure it came
+ * from is kept, a refused restore is asked again (RESTORE_TRIES), and nothing is lowered meanwhile
+ * (Codex review of #212: a lowering from a restore not yet taken started from the lowered value).
  */
 export class ExposureOnGlare {
   private since: number | null = null;
   /** Down: the exposure it went down from, and the one it set. */
   private down: { from: number; to: number } | null = null;
+  /** A restore asked for and not yet answered. */
+  private restoring = false;
+  private tries = 0;
 
-  /** Whether it has the exposure down now. */
+  /** Whether it has the exposure down now (or on its way back). */
   get isDown(): boolean {
     return !!this.down;
   }
 
   frame(glary: boolean, reading: boolean, now: number, exposure: number, range: ExposureRange | null): number | null {
-    if (!range) {
+    if (!range || this.restoring) {
       this.since = null;
       return null;
     }
     if (this.down) {
       if (reading) return null;
       const d = this.down;
-      this.down = null;
       this.since = null;
       // Moved by the person meanwhile (neither where it was nor where it went): theirs stands.
       const near = (a: number, b: number) => Math.abs(a - b) <= range.step / 2;
-      return near(exposure, d.to) || near(exposure, d.from) ? d.from : null;
+      if (!near(exposure, d.to) && !near(exposure, d.from)) {
+        this.down = null;
+        return null;
+      }
+      this.restoring = true;
+      return d.from;
     }
     if (!reading || !glary) {
       this.since = null;
@@ -192,16 +205,29 @@ export class ExposureOnGlare {
     this.since ??= now;
     if (now - this.since < EXPOSE_GLARE_MS) return null;
     this.since = null;
-    const lowest = range.min;
-    const to = Math.max(lowest, exposure - GLARE_EV);
+    const to = Math.max(range.min, exposure - GLARE_EV);
     // Already as low as it goes: nothing to do.
     if (to > exposure - range.step / 2) return null;
     this.down = { from: exposure, to };
+    this.tries = 0;
     return to;
   }
 
-  /** The camera's answer: not taken, so it isn't down. */
+  /** The camera's answer to a lowering: not taken, so it isn't down. */
   answered(ok: boolean): void {
     if (!ok) this.down = null;
+  }
+
+  /** The camera's answer to a restore: taken, it's back; refused, asked again on a later frame, a few times. */
+  restored(ok: boolean): void {
+    this.restoring = false;
+    if (ok || ++this.tries >= RESTORE_TRIES) this.down = null;
+  }
+
+  /** Another camera: what this one did to the last one's exposure is nothing to put back. */
+  forget(): void {
+    this.down = null;
+    this.restoring = false;
+    this.since = null;
   }
 }
