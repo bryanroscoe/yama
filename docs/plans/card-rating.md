@@ -9,10 +9,11 @@ to understand and grok but there's definitely a somewhat formulaic way to know h
 is. I don't know if any sites do this or if we can do this but it'd be super handy for the
 scanner for sure ... and this would be really helpful for the commander decks repo as well."
 
-The prototype's scripts, inputs and outputs are in
-`~/Developer/.agent-tasks/yama-card-power-20261123/` (`work/rating.py` is the formula,
-`work/eval*.py` the checks). A page to look cards up, with the 13 Nov collection marked:
-https://claude.ai/artifact/5m7PMAAdNw8gkQyQa8Kuot (private to Bryan).
+The prototype's scripts, inputs and outputs are in a work directory outside the repository
+(`~/Developer/.agent-tasks/yama-card-power-20261123/`: `work/rating.py` is the formula,
+`work/final.py` prints every figure quoted here). Card data is Scryfall's bulk files of
+23 Nov 2026, and every price on this page is Scryfall's market price (USD) of that day for the
+card's cheapest printing: a dated market price, not a store quote.
 
 ## What Yama says about a card today
 
@@ -36,8 +37,8 @@ No site publishes one sortable power rating for every Commander card (checked 23
 | EDHREC | Deck count, inclusion among "potential decks", lift, salt | Popularity; no export, and its terms forbid automated queries |
 | Scryfall `edhrec_rank` | The rank above, in bulk data | The three faults above |
 | ScryCheck card index | An Overall score for its top 10,000 cards | Method unpublished; reuse prohibited |
-| Playgroup.gg staples | Win-rate lift with and without a card, same commander, 244,155 casual games, CC BY 4.0 | Only 175 cards shown; no file |
-| EDHTop16 staples | cEDH play rate for about 1,300 cards | cEDH only, the meta Bryan wants to see past; page only |
+| Playgroup.gg staples | Win-rate lift with and without a card, same commander, 244,155 casual games, CC BY 4.0 with a link back | Only 175 cards shown; no file |
+| EDHTop16 staples | cEDH play rate for about 1,300 cards | cEDH only, the meta Bryan wants to see past; page only, no licence stated |
 | Cube Cobra | A draft-pick Elo for 39,000 cards, public file | Cube drafting, two players; no data licence |
 | Arena Brawl weights | Datamined matchmaking weights | Two players, frozen at May 2024 |
 | Draftsim, ScrollVault, edhpowerlevel | Deck scores | No card table, or EDHREC-rank tiers |
@@ -48,96 +49,120 @@ tried as an input here and added nothing ("What was tried and left out").
 
 ## The rating
 
-The idea is the one EDHREC itself uses for a card's page and doesn't publish in bulk, plus what
+The idea is the one EDHREC itself shows on a card's page and doesn't publish in bulk, plus what
 people pay: **how much do players want this card in the decks that can run it?**
 
-1. **Play share.** Turn the rank back into a rough deck count (a curve through five public EDHREC
-   figures: Sol Ring, Swords to Plowshares, Assassin's Trophy, Narset, Parter of Veils and
-   Batterskull). Divide by the decks that could run the card: those whose color identity holds
-   the card's, from Yama's own commander records (4,082 commanders, 5.1 million reported games:
-   one color is in about half of decks, a pair in a quarter, three colors in an eighth), and
-   fewer for a card under 18 months old. For a card that can be a commander, take off the decks
-   it leads.
-2. **Price.** The cheapest printing's market price, counted from $0.50 to $60. At the same play
-   share, the card people pay more for is the one they want more. Below $0.50 a price says
-   nothing; above $60 it is mostly scarcity (Reserved List, old print runs).
-3. **Two small corrections.** Up a little for each two-card combo the card is half of (Commander
-   Spellbook), down a little for each printing in a Commander precon.
-
 ```
-index  = log10(play share) + 0.75 × log10(price) + 0.2 × log10(1 + two-card combos)
-         − 0.2 × log10(1 + precon printings)        (lands: − 0.25)
-rating = 94 + 20 × index, held to 0–100
+play share = decks(rank) / (7.8 million × color share × age share), at most 1
+index      = log10(play share)
+           + 0.75 × log10(price + 0.25)        price held between $0.50 and $60
+           + 0.2  × log10(1 + two-card combos)
+           − 0.2  × log10(1 + precon printings)
+           − 0.25 for a land
+rating     = 94 + 20 × index, held to 0–100
 ```
 
-Top is 80 and up (457 cards), Strong 68 (1,100), Playable 55 (2,812). A missing price stays
-missing: the card is rated on play share with a neutral price and marked "no price". A card under
-six months old is marked provisional. Banned cards and basic lands get no rating.
+1. **Play share is a modeled estimate, not EDHREC's figure.**
+   - `decks(rank)` is a curve, straight between points on log scales, through five figures read
+     by hand from public EDHREC pages on 23 Nov 2026 (Sol Ring, Swords to Plowshares, Assassin's
+     Trophy, Narset, Parter of Veils and Batterskull, the last two from older snapshots) and
+     guessed past rank 5,000. The 7.8 million is Sol Ring's page: 6.54 million decks, 83.8%.
+   - Color share is the share of reported games played by commanders whose color identity holds
+     the card's, from Yama's public commander records (4,082 commanders, 5.1 million reported
+     games on `/commanders`): about half for one color, a quarter for a pair, an eighth for
+     three. It is weighted by games, not by decks.
+   - Age share is months since the first printing over 18, between 25% and 100%: a newer card
+     has had fewer decks to be in.
+   - Whether the rank counts a card's own command-zone decks isn't documented. The prototype
+     first took off the decks a commander leads; the rank doesn't look as if it holds them (for
+     many popular commanders the decks they lead outnumber the rank's whole count), so the
+     subtraction is out. A legendary creature's rating is for its place in the 99.
+2. **Price.** At the same play share, the card people pay more for is the one they want more.
+   Below $0.50 a price says nothing; above $60 it is mostly scarcity (Reserved List, old print
+   runs). A missing price stays missing: the card is rated as if at the $0.50 floor (about three
+   points under a $1 card) and marked "no price". Eleven rated cards have none.
+3. **Two small corrections.** Up for each two-card combo the card is half of (Commander
+   Spellbook's export: variants marked OK and legal in Commander, made of named cards only).
+   Down for each printing in a set Scryfall types as `commander`.
 
-Every input is already in Yama's database: `cards.edhrec_rank`, color identity, prices,
-`printings.set_type`, `spellbook_combos` and the commander evidence. No new source, licence or
-request is needed for this version.
+Top is 80 and up (479 cards), Strong 68 (1,141), Playable 55 (2,873), of 32,575 rated. A card
+under six months old is marked provisional (1,674 cards). Banned cards, basic lands and cards
+without a rank get no rating.
 
-What it does to familiar cards (rating, with EDHREC rank):
+The inputs are in Yama's database already (`cards.edhrec_rank`, color identity, prices,
+`printings.set_type`, `spellbook_combos`, the commander evidence), with two differences from the
+prototype to settle and remeasure when it is built: Yama's Spellbook import leaves out combos
+that need a card as the commander, which the prototype counted; and the commander evidence comes
+from datasets with their own attribution (Playgroup.gg, Mythic Tools), which a page showing a
+figure derived from them has to carry.
 
-| Card | Rank | Rating | New tag | Why |
-|---|---|---|---|---|
-| Rhystic Study | 46 | 100 | Top | In about a quarter of blue decks at $63 |
-| Eladamri's Call | 788 | 89 | Top | About 9% of green-white decks, $10: gold cards get their due |
-| Sol Ring | 1 | 88 | Top | No longer first, because it is $1 |
-| Assassin's Trophy | 121 | 85 | Top | A third of black-green decks |
-| Culling the Weak | 489 | 83 | Top | 6% of black decks at $8, and a cEDH staple |
-| Cultivate | 20 | 78 | Strong | Cheap and everywhere |
-| Command Tower | 2 | 75 | Strong | |
-| Path of Ancestry | 15 | 67.8 | Playable | Precon filler, 33 precon printings |
-| Commander's Sphere | 57 | 67 | Playable | The same |
-| Murder | 906 | 62 | Playable | |
-| The Tabernacle at Pendrell Vale | 8,784 | 58 | Playable | $3,620 doesn't buy a top rating |
-| Batterskull | 5,092 | 54 | None | Just under Playable |
+What it does to familiar cards:
+
+| Card | EDHREC rank | Price | Rating | New tag | Why |
+|---|---|---|---|---|---|
+| Rhystic Study | 46 | $63.18 | 100 | Top | In about a quarter of blue decks |
+| Eladamri's Call | 788 | $10.45 | 89 | Top | About 9% of green-white decks: gold cards get their due |
+| Sol Ring | 1 | $1.16 | 89 | Top | No longer first, because it is cheap |
+| Assassin's Trophy | 121 | $1.17 | 85 | Top | A third of black-green decks |
+| Culling the Weak | 489 | $8.03 | 83 | Top | 6% of black decks, and a cEDH staple |
+| Cultivate | 20 | $0.32 | 78 | Strong | Cheap and everywhere |
+| Command Tower | 2 | $0.20 | 75 | Strong | |
+| Path of Ancestry | 15 | $0.22 | 67.8 | Playable | 33 precon printings |
+| Commander's Sphere | 57 | $0.15 | 67 | Playable | 36 precon printings |
+| Murder | 906 | $0.11 | 62 | Playable | |
+| The Tabernacle at Pendrell Vale | 8,784 | $3,619.50 | 58 | Playable | The price counts as $60 |
+| Batterskull | 5,092 | $3.42 | 54 | None | Just under Playable |
 
 ## Measured
 
-Each check takes two groups of cards where one is plainly better, and asks how often the score
-puts a card from the better group above one from the other (0.5 is a coin flip).
+Each check takes two groups of cards where one should be better, and asks how often the score
+puts a card from the better group above one from the other (0.5 is a coin flip). The groups
+stand in for real strength; none of them is a measurement of it.
 
 | Check | Cards | EDHREC rank | Rating |
 |---|---|---|---|
-| Cards Bryan's plans add against the cards they cut (`commander-decks/decks/compare`, 20 decks) | 386 / 609 | 0.76 | 0.87 |
+| Cards Bryan's plans add against the cards they cut (`commander-decks/decks/compare`, 20 decks) | 386 / 609 | 0.76 | 0.88 |
 | Added only for Bracket 4 against added only for Bracket 2, none from the stock list | 104 / 84 | 0.69 | 0.87 |
-| Stock precon cards the plans keep against stock cards they cut, nonland | 336 / 267 | 0.59 | 0.62 |
+| Stock precon cards the plans keep against stock cards they cut, nonland | 336 / 267 | 0.59 | 0.63 |
 | Game Changers against the rest of EDHREC's top 5,000 | 53 / 4,941 | 0.76 | 0.89 |
-| cEDH staples (10% of tournament decks or more) against other played cards | 230 | 0.91 | 0.93 |
-| Wider cEDH pool (3% or more) against other played cards | 512 | 0.81 | 0.84 |
+| Cards EDHTop16 shows in 10% or more of cEDH decks, against nonland cards in EDHREC's top 8,000 it shows under 1% or not at all | 230 / 6,218 | 0.91 | 0.93 |
+| The same at 3% or more | 512 / 6,218 | 0.81 | 0.83 |
 
 Read them with their weaknesses:
 
+- **The same six checks guided the choice of weights.** The weights are round numbers set by
+  hand, not fitted, but this is agreement with the checks, not a held-out test.
 - The first two sets come from lists agents built for Bryan, and cut cards are precon cards,
   which are cheap because they were just reprinted. Price alone scores 0.92 and 0.90 on them,
-  so they flatter anything with price in it.
-- The cEDH sets are the honest test of price, because tournaments allow proxies: there price
-  alone scores 0.81, play share alone 0.91 and the two together 0.93. That is why price is one
-  term at weight 0.75 and not the whole rating.
-- The third set is decided mostly by the deck, so every score is weak on it.
-- The weights were set by hand to round numbers that hold on all six sets, not fitted. Taking
-  any one term out moves a check by 0.02 or less, except price (0.87 to 0.73 on the Bracket set).
-  The color-identity division is close to neutral on these sets; it is kept because the sets
-  hold few gold cards and it is the same division EDHREC makes.
+  and 0.93 on Game Changers, so those three flatter anything with price in it.
+- The cEDH sets are where price can't cheat, because tournaments allow proxies. There price
+  alone scores 0.81 and 0.73, the rating without its price term 0.93 and 0.82, and the whole
+  rating 0.93 and 0.83. So price is what lifts the first, second and fourth checks (without it:
+  0.81, 0.74 and 0.76) and it costs nothing where it shouldn't help. That is why it is one term
+  at weight 0.75 and not the whole rating.
+- The third set is decided mostly by the deck, so every score is weak on it. It is the one check
+  the color share plainly helps (0.60 without it).
+- Taking out the combo term, the precon term, the age share or the land offset moves each check
+  by 0.02 or less.
 
-On the 13 Nov collection export (1,233 rated cards): of the 276 cards the rank calls Playables,
-155 stay Strong or Top, 110 drop to Playable and 11 to bulk, ten of those lands (Escape Tunnel,
-Nesting Grounds, the Urza lands). Of 322 Viable cards, 25 rise to Strong or Top
-and 155 drop to bulk. Of 635 bulk cards, 36 rise to Playable or better.
+Sorting the 13 Nov 2026 collection export (1,233 rated cards) into the boxes, with the existing
+rule that a land making two or more colors is a playable on both sides: of 328 cards in
+Playables, 86 leave (75 to Viable, 11 to bulk, ten of the 11 lands such as Escape Tunnel and the
+Urza lands), and 27 come in. Of 290 Viable cards, 140 drop to bulk; 32 bulk cards rise to Viable.
 
 ## What it can't see
 
 - **A cheap card few people play.** Both main terms are demand, so an underrated card scores low.
   Only game results can find those ("Later inputs").
-- **The deck.** Sliver Legion rates 90 because Sliver players pay for it; the rating doesn't know
+- **The deck.** Sliver Legion rates 91 because Sliver players pay for it; the rating doesn't know
   the commander in front of you. Deck analysis and the plans do that.
 - **New cards.** Launch prices and a deck count still filling in; marked provisional.
-- **The rank itself.** The deck-count curve is rebuilt from five public figures and guessed past
-  rank 5,000. Play share is "about", and the anchors need a look once or twice a year.
+- **The rank itself.** The deck-count curve is rebuilt from five public figures of mixed dates
+  and guessed past rank 5,000, so play share is "about". The anchors would be read again by
+  hand once or twice a year; EDHREC's terms rule out fetching them by script.
 - **Commanders as commanders.** The rating is for the 99; `/commanders` ranks commanders.
+- **Price as cause.** A card can be dear for its art or its scarcity under the $60 cap, and a
+  reprint moves a rating without the card changing.
 
 ## What was tried and left out
 
@@ -145,6 +170,7 @@ and 155 drop to bulk. Of 635 bulk cards, 36 rise to Playable or better.
   added. They stay useful for naming a card's role.
 - **Cube Cobra Elo:** 0.51 to 0.77 alone, no gain when added, and no data licence.
 - **Mana value:** helps the cEDH sets, hurts the others.
+- **Taking off the decks a commander leads:** see "The rating"; no check improved.
 - **Fitting a model:** no trustworthy labels to fit to; a hand-set formula can be explained on a
   card's page.
 
@@ -157,35 +183,41 @@ and 155 drop to bulk. Of 635 bulk cards, 36 rise to Playable or better.
    and after.
 2. **Everywhere a card shows.** The offline card list carries the rating, so the scanner's tag
    needs no request. The card page and the scanned card's sheet say why in one sentence ("In
-   about a third of black-green decks; $1.17"). `get_cards`, `search_cards` and
-   `list_collection_cards` return it and sort by it.
-3. **Roles.** Scryfall now publishes its community role tags in bulk (`oracle_tags`, read 23 Nov 2026: ramp,
-   removal, sweeper, draw, tutor, counterspell, protection, recursion). With them, "the best
-   removal I own and am not using" is one query, which is what `commander-decks` needs for
-   spares ("Use the spares and leftovers").
+   about a third of the decks that can run it"), beside the price with its date and source as
+   everywhere else. `get_cards`, `search_cards` and `list_collection_cards` return it and sort
+   by it. Pages that show it credit Scryfall and Commander Spellbook with a link, as the combo
+   pages do.
+3. **Roles.** Scryfall now publishes its community role tags in bulk (`oracle_tags`, read
+   23 Nov 2026: ramp, removal, sweeper, draw, tutor, counterspell, protection, recursion). With
+   them, "the best removal I own and am not using" is one query, which is what `commander-decks`
+   needs for spares ("Use the spares and leftovers").
 4. **commander-decks.** `piles.py` reads the rating in place of the rank, and candidate lists for
    a slot sort by it within the role.
 
 ## Later inputs
 
-- **cEDH play rate**, as a boost and a mark of its own ("in 60% of cEDH decks"). TopDeck.gg's API
-  is free with a key and asks for a visible credit; that needs an account.
+Each needs its terms read and its credit shown before any of its data is stored or displayed.
+
+- **cEDH play rate**, as a boost and a mark of its own. TopDeck.gg's API is free with a key; its
+  developer terms ask for a visible credit with a link and forbid selling the data. That needs
+  an account.
 - **Win rates from real games.** Playgroup.gg computes each card's win-rate lift within the same
-  commander from 244,155 casual games and licenses the figures CC BY 4.0, but shows only 175
-  cards. A file from them would be the one input that can find a good card nobody plays.
+  commander from 244,155 casual games and publishes the aggregate figures under CC BY 4.0 with a
+  link back, but shows only 175 cards. A file from them, with their say on how to credit it,
+  would be the one input that can find a good card nobody plays.
 - **Yama's own lab.** The Forge runs log every game; a win rate for games where a card was drawn
   is possible for precon cards, as far as the computer's play can be trusted.
 
 ## Decisions for Bryan
 
-1. **Does price belong in the rating?** Recommended: yes, at this weight. Without it the rating
-   is fairer than the rank but can't tell Rampant Growth from Demonic Tutor. The other way to go
-   is two figures, a play share and the price, with no combined number.
+1. **Does price belong in the rating?** Recommended: yes, at this weight. Without it Demonic
+   Tutor rates 81 and Rampant Growth 79; with it, 100 and 77. The other way to go is two
+   figures, a play share and the price, with no combined number.
 2. **The words and the bars.** Recommended: Top (80), Strong (68) and Playable (55) in place of
    Staple and Played, with Game Changer still a separate mark. For the boxes: Playables takes
    Strong and up, Viable takes Playable, and "a land that makes two or more colors" stays a
-   rule of its own. On the 13 Nov export that moves about 120 cards out of the Playables box and 25 in, before the
-   land rule keeps some of the lands.
+   rule of its own. On the 13 Nov export that moves 86 cards out of the Playables box and 27 in,
+   before the exceptions for cards a plan counts on or that are being sold.
 3. **cEDH data.** Make a TopDeck.gg account and key (free), or leave cEDH out for now.
 4. **Ask Playgroup.gg for a per-card file.** A short email from Bryan; they invite the request.
 5. **Go.** Build stages 1 and 2, then 3 and 4.
