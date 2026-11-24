@@ -47,3 +47,15 @@ export function cardShaped(q: Quad): boolean {
   const s = quadShape(q);
   return s.convex && s.ratio >= SHAPE_RATIO.min && s.ratio <= SHAPE_RATIO.max && s.minAngle >= SHAPE_MIN_ANGLE;
 }
+
+/**
+ * What an outline is (Codex re-check of #213): "card"; "squat", one card tilted until its outline
+ * looks square (convex, its corners fine, its sides under SHAPE_RATIO.min): still one card, whose
+ * title and collector line may be read but whose art may not name it by itself; or "junk", anything
+ * else (a column of overlapping cards, a sliver, a dented outline): nothing is read from it.
+ */
+export function outlineKind(q: Quad): "card" | "squat" | "junk" {
+  const s = quadShape(q);
+  if (!s.convex || s.minAngle < SHAPE_MIN_ANGLE || s.ratio > SHAPE_RATIO.max) return "junk";
+  return s.ratio < SHAPE_RATIO.min ? "squat" : "card";
+}

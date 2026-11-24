@@ -33,7 +33,7 @@ const bundle = (): BundleInfo => ({
 });
 
 /** What lies in view: Arcane Signet flat, the same card tilted so its outline looks square, or nothing. */
-const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "tilted" | "none", printings: 1, ill: 0, title: "" }));
+const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "tilted" | "other" | "otherTilted" | "column" | "none", printings: 1, ill: 0, title: "" }));
 
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
@@ -50,6 +50,8 @@ vi.mock("../api", async (original) => ({
 const QUAD: Quad = [[89, 267], [551, 267], [551, 913], [89, 913]];
 /** The same card tilted far enough that its outline is about square (cardShape.ts refuses it). */
 const SQUAT: Quad = [[89, 400], [551, 400], [551, 860], [89, 860]];
+/** A column of overlapping cards outlined as one (1.9 to 1): not one card. */
+const COLUMN: Quad = [[150, 60], [490, 60], [490, 706], [150, 706]];
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
   loadArtRecognizer: async () => {
@@ -66,12 +68,14 @@ vi.mock("./artClient", async (original) => ({
       useLook: async () => undefined,
       lookAt: async () => ({ model: "none", frames: 0, queryMs: 0, scored: 0, cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0, ms: 0 }),
       identify: async (_image, onSeen) => {
-        const quad = cam.card === "none" ? null : cam.card === "tilted" ? SQUAT : QUAD;
+        const quad = cam.card === "none" ? null : cam.card === "tilted" || cam.card === "otherTilted" ? SQUAT : cam.card === "column" ? COLUMN : QUAD;
         onSeen?.(quad);
         // "weak": the card still there, its art washed out (a foil in glare): too weak to hold it.
-        // Its art matches surely either way: only the outline differs.
-        const matches = quad ? [{ ...signet(), score: 0.93 }, { ...other, score: 0.4 }] : [];
-        return { quad, upright: 1, matches, ...(cam.card === "tilted" ? { shaped: false as const } : {}), timings: { detectMs: 1, embedMs: 1, totalMs: 2 } };
+        // Each card's art matches surely: only the outline differs.
+        const isOther = cam.card === "other" || cam.card === "otherTilted";
+        const matches = !quad ? [] : isOther ? [{ ...other, score: 0.9 }] : [{ ...signet(), score: 0.93 }, { ...other, score: 0.4 }];
+        const odd = cam.card === "tilted" || cam.card === "otherTilted" || cam.card === "column";
+        return { quad, upright: 1, matches, ...(odd ? { shaped: false as const } : {}), timings: { detectMs: 1, embedMs: 1, totalMs: 2 } };
       },
       locate: async () => {
         throw new Error("no gate here");
@@ -191,5 +195,38 @@ describe("an outline that isn't card-shaped", { timeout: 20_000 }, () => {
     cam.card = "signet";
     await wait(1200);
     expect(accepted).toHaveLength(1);
+  });
+
+  it("names a tilted card by its title, while it's still tilted (Codex re-check of #213)", async () => {
+    cam.card = "tilted";
+    cam.title = "Arcane Signet";
+    const accepted: ScanCandidate[] = [];
+    act(() => root.render(<Host accepted={accepted} />));
+    await until(() => (accepted.length === 1 ? true : null), "the tilted card named by its title");
+    expect(accepted[0]!.name).toBe("Arcane Signet");
+  });
+
+  it("lets another card, tilted, end the hold on the one just filed, but not be named by its art; flat, it's added", async () => {
+    const accepted: ScanCandidate[] = [];
+    act(() => root.render(<Host accepted={accepted} />));
+    await until(() => (accepted.length === 1 ? true : null), "the first card added");
+    cam.card = "otherTilted";
+    await wait(1200);
+    expect(accepted).toHaveLength(1);
+    cam.card = "other";
+    await until(() => (accepted.length === 2 ? true : null), "the other card added once flat");
+    // (This fake's printings are all Arcane Signet's: the second add is the card in view, Stridehangar.)
+    await wait(600);
+    expect(accepted).toHaveLength(2);
+  });
+
+  it("names nothing from a column of overlapping cards, title or art, and says to show one card", async () => {
+    cam.card = "column";
+    cam.title = "Arcane Signet";
+    const accepted: ScanCandidate[] = [];
+    act(() => root.render(<Host accepted={accepted} />));
+    await until(() => (chip().includes("Show one card at a time") ? true : null), "one card at a time");
+    await wait(1000);
+    expect(accepted).toHaveLength(0);
   });
 });
