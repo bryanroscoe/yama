@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { artGlare, GLARE_ART, GLARE_HINT_MS, GlareWatch, TORCH_ON_MS, TorchOnStruggle } from "./glare";
+import { artGlare, EXPOSE_GLARE_MS, ExposureOnGlare, GLARE_ART, GLARE_EV, GLARE_HINT_MS, GlareWatch, TORCH_ON_MS, TorchOnStruggle } from "./glare";
 import { rectQuad } from "./image";
 import type { Quad, RgbaImage } from "./types";
 
@@ -117,3 +117,74 @@ describe("TorchOnStruggle", () => {
     for (let at = TORCH_ON_MS; at < 5 * TORCH_ON_MS; at += 100) expect(t.frame(true, false, at)).toBe(false);
   });
 });
+
+describe("ExposureOnGlare", () => {
+  const range = { min: -2, max: 2, step: 1 / 3 };
+  it("goes down a stop once glare has stayed on a card being read, and back once it's named or gone", () => {
+    const e = new ExposureOnGlare();
+    expect(e.frame(true, true, 0, 0, range)).toBeNull();
+    expect(e.frame(true, true, EXPOSE_GLARE_MS - 1, 0, range)).toBeNull();
+    expect(e.frame(true, true, EXPOSE_GLARE_MS, 0, range)).toBe(-GLARE_EV);
+    expect(e.isDown).toBe(true);
+    // Stays down while the card is read, glare or not.
+    expect(e.frame(false, true, 2000, -1, range)).toBeNull();
+    // Named (or gone): back to where it was, once the camera has taken it.
+    expect(e.frame(false, false, 3000, -1, range)).toBe(0);
+    expect(e.isDown).toBe(true);
+    e.restored(true);
+    expect(e.isDown).toBe(false);
+  });
+
+  it("keeps where it came from until the camera has gone back, and lowers nothing meanwhile (Codex review of #212)", () => {
+    const e = new ExposureOnGlare();
+    e.frame(true, true, 0, 0, range);
+    e.frame(true, true, EXPOSE_GLARE_MS, 0, range);
+    expect(e.frame(false, false, 2000, -1, range)).toBe(0);
+    // The next glary card while that restore is on its way: not lowered from the old -1.
+    expect(e.frame(true, true, 2100, -1, range)).toBeNull();
+    expect(e.frame(true, true, 2100 + EXPOSE_GLARE_MS, -1, range)).toBeNull();
+    // Refused: asked again, from 0, on a later frame; then taken.
+    e.restored(false);
+    expect(e.frame(false, false, 4000, -1, range)).toBe(0);
+    e.restored(true);
+    expect(e.isDown).toBe(false);
+    // From there the next card starts from 0.
+    e.frame(true, true, 5000, 0, range);
+    expect(e.frame(true, true, 5000 + EXPOSE_GLARE_MS, 0, range)).toBe(-GLARE_EV);
+    // Refused again and again: let go after a few tries; and another camera forgets it at once.
+    for (let i = 0; i < 3; i += 1) {
+      e.frame(false, false, 7000 + i, -1, range);
+      e.restored(false);
+    }
+    expect(e.isDown).toBe(false);
+    const f = new ExposureOnGlare();
+    f.frame(true, true, 0, 0, range);
+    f.frame(true, true, EXPOSE_GLARE_MS, 0, range);
+    f.forget();
+    expect(f.isDown).toBe(false);
+    expect(f.frame(false, false, 3000, -1, range)).toBeNull();
+  });
+
+  it("leaves the person's own exposure: from where they set it, and as they move it while down", () => {
+    const e = new ExposureOnGlare();
+    e.frame(true, true, 0, 0.7, range);
+    expect(e.frame(true, true, EXPOSE_GLARE_MS, 0.7, range)).toBeCloseTo(-0.3, 5);
+    // The slider moved meanwhile (to +1): not put back.
+    expect(e.frame(false, false, 3000, 1, range)).toBeNull();
+    // Already at the bottom of the range: nothing to lower.
+    const low = new ExposureOnGlare();
+    low.frame(true, true, 0, -2, range);
+    expect(low.frame(true, true, EXPOSE_GLARE_MS, -2, range)).toBeNull();
+    // A camera that can't change it, or a refusal: never down.
+    const none = new ExposureOnGlare();
+    expect(none.frame(true, true, 0, 0, null)).toBeNull();
+    expect(none.frame(true, true, EXPOSE_GLARE_MS, 0, null)).toBeNull();
+    const refused = new ExposureOnGlare();
+    refused.frame(true, true, 0, 0, range);
+    refused.frame(true, true, EXPOSE_GLARE_MS, 0, range);
+    refused.answered(false);
+    expect(refused.isDown).toBe(false);
+    expect(refused.frame(false, false, 3000, 0, range)).toBeNull();
+  });
+});
+

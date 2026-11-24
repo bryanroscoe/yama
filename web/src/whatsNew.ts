@@ -15,6 +15,16 @@ export interface NewsEntry {
 
 export const NEWS: NewsEntry[] = [
   {
+    id: "2026-11-23-scanner-exposure",
+    date: "2026-11-23",
+    title: "Exposure in the scanner",
+    items: [
+      "In the Android app, Scan settings has an Exposure slider for the camera, kept on this device.",
+      "When glare hides a card's art, the scanner turns the exposure down a stop until the card is named, then puts yours back.",
+    ],
+    link: { to: "/collection", label: "Scan cards" },
+  },
+  {
     id: "2026-11-23-scanner-foil-sheen",
     date: "2026-11-23",
     title: "The scanner tells foils by their shine",
