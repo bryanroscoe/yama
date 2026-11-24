@@ -62,6 +62,7 @@ import { AUTO_MAX, AutoZoom, closeupZoom, LENS_SWITCH, maySwitchLens, WideOnStru
 import { ExposureOnGlare, GlareWatch, TorchOnStruggle } from "./glare";
 import { hasTextBox, SheenWatch, type FoilVerdict, type Sheen } from "./foil";
 import { outlineKind } from "./cardShape";
+import { requiresArtTitle } from "./artTitle";
 import { agrees, FOLLOW_MOVE } from "./outline";
 import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
@@ -892,7 +893,7 @@ function ScannerScreen({
    */
   const lastText = useRef<{ card: ScanCandidate; at: number } | undefined>(undefined);
   /** The art just accepted: not found again until the card leaves or another one shows. */
-  const blocked = useRef<ArtHold | null>(null);
+  const blocked = useRef<(ArtHold & { name: string }) | null>(null);
   /** Frames in a row the detector saw no card, for ending a text hold. */
   const noCard = useRef(0);
   /** The same for a card found by its text (no art match); see hold.ts. The detector seeing no card also ends it. */
@@ -3022,17 +3023,23 @@ function ScannerScreen({
             return next(60);
           }
           const unshaped = kind === "squat";
+          const topNeedsTitle = !!top && requiresArtTitle(top);
           // The card just added stays held until it has clearly gone (hold.ts): one missed
           // detection while it's still in view, or on its way out, would add it again.
           // The held card still counts as seen when any match names it (with the set lock, the
           // top match can flip between an in-set and an outside one while the card sits there).
-          const heldIndex = blocked.current?.index;
+          const artHold = blocked.current;
+          const heldIndex = artHold?.index;
           const stillHeld = r.quad && heldIndex != null ? [...r.matches, ...(r.pool ?? [])].find((m) => m.index === heldIndex && m.score >= ART_UNKNOWN) : undefined;
-          if (blocked.current && artHoldFrame(blocked.current, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
+          // Glare can make the held card look like a guarded match, or make its replacement
+          // look like the guarded card just filed. Wait for text before either hold decision.
+          const checkHeldTitle = !!r.quad && !!artHold && (topNeedsTitle || (!!stillHeld && requiresArtTitle(stillHeld)));
+          const artMayName = !unshaped && !topNeedsTitle && !checkHeldTitle;
+          if (artHold && !checkHeldTitle && artHoldFrame(artHold, r.quad ? (stillHeld ?? top ?? null) : null, ART_UNKNOWN, LOCK_TWICE) === "free") blocked.current = null;
           // Another card has taken the filed one's place, though the view never emptied (review of
           // #205): an artwork it hasn't been seen as leads, surely (LOCK_ONCE) or on two frames in a
           // row at LOCK_TWICE. Any other frame's lead is taken as the filed card seen again.
-          if (r.quad && top && filedName.current && !stillFiledAs(filedName, top.name) && !filedArts.current.has(top.index) && top.score >= LOCK_TWICE) {
+          if (r.quad && top && !topNeedsTitle && !checkHeldTitle && filedName.current && !stillFiledAs(filedName, top.name) && !filedArts.current.has(top.index) && top.score >= LOCK_TWICE) {
             const run = filedOther.current?.index === top.index ? filedOther.current.frames + 1 : 1;
             filedOther.current = { index: top.index, frames: run };
             if (top.score >= LOCK_ONCE || run >= 2) filedName.current = null;
@@ -3073,7 +3080,7 @@ function ScannerScreen({
           seenQuad = seenNow;
           // ("Still in view" stays while the card filed last holds: a lookalike's frame doesn't end it.)
           if (!blocked.current && !blockedName.current && !filedName.current) setDupe(null);
-          if (blocked.current) {
+          if (blocked.current && !checkHeldTitle) {
             notSeeking();
             // With the gate: the card just added, seen again, is latched; a read that didn't show
             // it (a weak match) is a miss, tried again, and the hold ends by its own rule (hold.ts).
@@ -3103,11 +3110,11 @@ function ScannerScreen({
           const read = (at: { image: RgbaImage; quad: Quad }) => (keepsView ? at : null);
           // A card just filed by its name stays held (hold.ts): its art mustn't file it again, by
           // art, by a title read or by the two-frame fallback below.
-          const heldName = blockedName.current?.name;
+          const heldName = blockedName.current?.name ?? (checkHeldTitle ? artHold?.name : undefined);
           // (Or the card filed last, by any means, still in view: stillFiledAs.)
           const isHeld = (name: string) => (!!heldName && sameCardName(name, heldName)) || stillFiledAs(filedName, name);
           // (With the gate: also a card named again within 3 s that never left the view, gate.ts.)
-          if (isHeld(top.name) || (gated && gate.suppresses(top.name, performance.now()))) {
+          if (!topNeedsTitle && !checkHeldTitle && (isHeld(top.name) || (gated && gate.suppresses(top.name, performance.now())))) {
             notSeeking();
             if (gateRead) gateRead.held = true;
             leadRun.step(null);
@@ -3132,7 +3139,7 @@ function ScannerScreen({
           const unlisted = r.matches[r.matches.length - 1]?.score;
           const lead = artLead(ranked, top, unlisted);
           const leadOn = leadRule();
-          const leading = leadOn && !artUnknown && !unshaped && leadCounts({ locked: !!locked, share: leadShare() }) && !blockedName.current && leads(top.score, lead);
+          const leading = leadOn && !artUnknown && artMayName && leadCounts({ locked: !!locked, share: leadShare() }) && !blockedName.current && leads(top.score, lead);
           // (With the gate too: a lead settles on its second read in a row, 50 ms after the first.)
           const leadFrames = leadRun.step(leading ? top.name : null);
           // A card being read to name it (a struggle, if it goes on: going wide, the glare said and the
@@ -3140,8 +3147,8 @@ function ScannerScreen({
           // pass: no stepping out under it.
           // (Art the set lock can't use for this card settles nothing: it doesn't hold the step back.)
           if (faceDown) notSeeking();
-          // (Art that can't name it by itself, squat, holds nothing back.)
-          else seeking(glare, !artUnknown && !unshaped && (top.score >= LOCK_ONCE || leading), r.sheen ?? null);
+          // A tilted outline or a match that still needs a title also keeps recovery active.
+          else seeking(glare, !artUnknown && artMayName && (top.score >= LOCK_ONCE || leading), r.sheen ?? null);
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
           // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
@@ -3162,7 +3169,7 @@ function ScannerScreen({
           // wait for a tap, so read the title too, and a clear one lets Keep going count it. Art
           // that leads has no lookalike close enough to need it.
           const rivalled = identityOnly && !leading && lookalikes(ranked, top).length > 0;
-          const readFirst = unshaped || readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current, leads: leading }) || needsTitle(ranked, unlisted, { lead: leadOn });
+          const readFirst = !artMayName || readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current, leads: leading }) || needsTitle(ranked, unlisted, { lead: leadOn });
           if (!readFirst && !rivalled) {
             unknownFrames = 0;
             const by = artDecides(top.score, leadFrames);
@@ -3215,18 +3222,40 @@ function ScannerScreen({
             // A fairly clear title agreeing with the art only where just the card matters (in the
             // collection a lookalike with one printing would be filed by itself), and not while a
             // card filed by its name is held (one read mustn't file a lookalike of it).
-            const fused = fuseTitle(artUnknown ? [] : ranked, title, { agree: identityOnly && !blockedName.current });
+            const fused = fuseTitle(artUnknown ? [] : ranked, title, {
+              agree: identityOnly && !heldName ? (match) => !requiresArtTitle(match) : undefined,
+            });
+            if (gateRead && fused.kind !== "none") gateRead.key = fused.kind === "art" ? fused.match.name : fused.name;
             // The title overruled the art: it named a card other than the art's best match.
             scanCtx.current = { ...artNote, titles, title, fused: fused.kind, artUnknown, overruled: fused.kind === "title" && !!top && !sameCardName(top.name, fused.name) };
             if (seen) Object.assign(seen, { titles, title, fused: fused.kind });
             // The card just filed, by its art or its title: still held. Not a new card appearing.
-            if (fusedHeld(fused, heldName) || fusedHeld(fused, filedName.current ?? undefined)) {
+            const keepTextHold = async (name: string) => {
               notSeeking();
               if (gateRead) gateRead.held = true;
               if (filedName.current) filedArts.current.add(top.index);
               appeared.current = null;
+              const later = heldLater.current;
+              if (checkHeldTitle && artHold && sameCardName(name, artHold.name)) {
+                artHold.away = 0;
+                if (later?.index === artHold.index) {
+                  await later.read(seenNow);
+                  if (stop) return;
+                }
+              }
               setStatus(NEXT);
-              return next(60);
+              next(60);
+            };
+            const previousFiledName = filedName.current;
+            const releaseTextHold = () => {
+              if (!topNeedsTitle && !checkHeldTitle) return;
+              if (blocked.current === artHold) blocked.current = null;
+              if (filedName.current === previousFiledName) filedName.current = null;
+            };
+            if (fused.kind !== "none") {
+              const name = fused.kind === "art" ? fused.match.name : fused.name;
+              if (fusedHeld(fused, heldName) || fusedHeld(fused, filedName.current ?? undefined)) return keepTextHold(name);
+              releaseTextHold();
             }
             if (fused.kind === "art") {
               lockBy("title");
@@ -3255,21 +3284,21 @@ function ScannerScreen({
             // The card's text names one of the art's matches, fairly surely: the two agree. In the
             // collection only surely (TEXT_AGREE_FILES), and not while a card filed by its name is
             // held (as above).
-            const agreed = said && said.confidence >= (identityOnly ? TEXT_VETO : TEXT_AGREE_FILES) && !artUnknown && !blockedName.current ? artHas(ranked, said.name) : undefined;
-            if (agreed && isHeld(agreed.name)) {
-              notSeeking();
-              if (gateRead) gateRead.held = true;
-              if (filedName.current) filedArts.current.add(top.index);
-              appeared.current = null;
-              setStatus(NEXT);
-              return next(60);
-            }
+            const textMatch = said && said.confidence >= (identityOnly ? TEXT_VETO : TEXT_AGREE_FILES) && !artUnknown && !heldName ? artHas(ranked, said.name) : undefined;
+            const agreed = textMatch && !requiresArtTitle(textMatch) ? textMatch : undefined;
+            if (gateRead && said) gateRead.key = agreed?.name ?? said.name;
+            if (agreed && isHeld(agreed.name)) return keepTextHold(agreed.name);
+            if (checkHeldTitle && said && said.confidence >= TEXT_VETO && isHeld(said.name)) return keepTextHold(said.name);
             if (agreed) {
+              releaseTextHold();
               lockBy("text");
               showArt(r, agreed, read(hi), { titled: true });
               return;
             }
-            if (handleText(res, false, false, hi)) return;
+            if (handleText(res, false, false, hi)) {
+              releaseTextHold();
+              return;
+            }
             // Face down, and nothing on it read as a card: that's all there is to say.
             if (faceDown) {
               // (With the gate: read once, and said for as long as it lies there.)
@@ -3290,8 +3319,9 @@ function ScannerScreen({
             // name is held.
             untitled = prev ? untitled + 1 : 1;
             if (!prev) failedReads = 0;
-            const artLocks = !unshaped && (top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev && untitled >= UNTITLED_FRAMES));
+            const artLocks = artMayName && (top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev && untitled >= UNTITLED_FRAMES));
             if (!stop && artLocks && !artUnknown && !vetoed && !blockedName.current) {
+              if (gateRead) gateRead.key = top.name;
               lockBy(top.score >= LOCK_ONCE ? "sure" : "twice");
               showArt(r, top, read(hi));
               return;
@@ -3299,7 +3329,7 @@ function ScannerScreen({
             // Still nothing: ask for a close-up of the name.
             // (Not while the card just added is held: that would read it again.)
             // Where only the card matters, a fair match (LOCK_TWICE) gets its UNTITLED_FRAMES first.
-            const artWaits = identityOnly && top.score >= LOCK_TWICE && !artUnknown && untitled < UNTITLED_FRAMES;
+            const artWaits = identityOnly && artMayName && top.score >= LOCK_TWICE && !artUnknown && untitled < UNTITLED_FRAMES;
             // (With the gate there's no close-up asked here: five tries, then "No match, move the card".)
             // (Nor while the card filed last still lies there: the close-up would read it again.)
             if (!stop && closeups && !gated && !vetoed && !blockedName.current && !filedName.current && ++failedReads >= TITLE_AFTER && !artWaits) {
@@ -3408,7 +3438,7 @@ function ScannerScreen({
           const leadOn = leadRule();
           const leading = leadOn && !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && leads(top.score, lead);
           const photoCtx = (lock: LockRule) => ({ photo: true, top: Math.round(top.score * 1000) / 1000, lead: Math.round(lead * 1000) / 1000, lock });
-          if (!artUnknown && r.shaped !== false && (top.score >= LOCK_ONCE || leading) && !needsTitle(ranked, unlisted, { lead: leadOn })) {
+          if (!artUnknown && r.shaped !== false && !requiresArtTitle(top) && (top.score >= LOCK_ONCE || leading) && !needsTitle(ranked, unlisted, { lead: leadOn })) {
             bmp.close();
             if (current()) {
               scanCtx.current = photoCtx(artDecides(top.score, 1, 1) ?? "sure");
@@ -3422,7 +3452,7 @@ function ScannerScreen({
             bmp.close();
             if (current()) {
               scanCtx.current = photoCtx("title");
-              showArt(r, fused.match, read);
+              showArt(r, fused.match, read, { titled: true });
             }
             return;
           }
@@ -3530,7 +3560,7 @@ function ScannerScreen({
     setReadProgress(null);
     setWrongOpen(false);
     setDupe(null);
-    blocked.current = held?.art ? { index: held.art.index, away: 0 } : null;
+    blocked.current = held?.art ? { index: held.art.index, name: held.name, away: 0 } : null;
     // Nothing held (Scan it again): the gate reads the card lying there once more.
     if (!held) gate.unlatch();
     noCard.current = 0;

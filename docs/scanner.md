@@ -247,11 +247,20 @@ What changed:
 
 Not done (measured or proposed, docs only):
 
-- **Attractor cards wait for the title unless sure.** Cut held-out wrong locks to 3 with the shape check, costing one title read on Bryan's scans (Agent of Atlas). Not shipped: the list holds cards scanned all the time (Command Tower, Swords to Plowshares, a Plains and an Island art), whose real reads often lead without being sure; the speed it would cost them isn't measured yet.
-- **Read the title line without the card's outline** (a text detector on the frame when the outline fails or the art doesn't lock): 96% right on fanned hands as an upper bound, against 1% today.
+- **Read the title line without the card's outline.** The title boxes annotated on fanned hands gave an upper bound of 96% right. A whole-frame test on glare and plain paper below tested what happens when OCR has to find the text itself.
 - **The bundle's detector as a fallback, or a finder retrained** on overlapping columns, fanned hands, boards, slabs with their labels, dice or fingers over the text.
 - **Gallery rows that aren't cards** (sticker sheets, emblems, tokens) pruned or weighed down: Enhancement Stickers alone won 114 junk reads.
 - **A capture session** of Bryan's own cards fills what no public set covers (foil types, sleeves, toploaders, slabs, flash on and off, Japanese, double-faced cards, battles): about 25 minutes, each card flat and in its condition, pulled with `corpus_pull.sh`.
+
+## Title checks for repeated false matches (2026-11-24)
+
+MB2 Whiteout's blank art scored 0.868 on a wrong gallery match. The camera and photo scanner now read the title for the specific gallery entries in `artTitle.ts` even when their art is sure or leads. An unreadable title can't send those entries through the repeated-frame art fallback. A clear title can confirm the candidate or name another card, and the existing collector-line and text checks can still identify the card independently. The camera can try its glare recovery while it seeks that evidence. While another card is held, a guarded art match also waits for text before keeping or releasing the hold.
+
+The list is keyed by set and collector number. It comes from 75 gallery rows that won at least three incorrect comparisons at 0.60 or above in the calibration split above. With the shape check in place, 7 of 10 held-out wrong art-only locks would have gone to text under this rule. So would 3 of 466 correct art-only locks in 516 phone photos, two Final Frontier scans and one Agent of Atlas scan. These counts measure which frames go to text, before OCR runs.
+
+In a whole-frame English Tesseract replay, 39 of 156 photos with art glare had an exact title read somewhere in the frame. Estimating the card from the title's position and text height overlapped the stored card outline by at least half on 20 of those photos (intersection over union). Five of six synthetic paper sheets with printed card names also had a title in a plausible card outline. The title can suggest where to look. A future fallback needs card evidence at that location, such as corroborating art or a collector line.
+
+On full-resolution card crops, the usual and tighter title regions with the English Paddle recogniser recovered an exact title on 15 of 22 glary frames and 10 of 13 filed-foil frames where art alone could not correctly lock. Local contrast enhancement (CLAHE) and adaptive thresholding recovered none of the remaining hard frames in either group. These are offline single-frame checks of saved phone photos, with finishes taken from the filing record rather than independently verified.
 
 ## Foil by its sheen, close-ups that zoom, and taking turns (2026-11-23, late)
 

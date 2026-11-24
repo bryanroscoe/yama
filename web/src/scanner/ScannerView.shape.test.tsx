@@ -33,7 +33,7 @@ const bundle = (): BundleInfo => ({
 });
 
 /** What lies in view: Arcane Signet flat, the same card tilted so its outline looks square, or nothing. */
-const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "tilted" | "other" | "otherTilted" | "column" | "none", printings: 1, ill: 0, title: "" }));
+const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "tilted" | "other" | "otherTilted" | "column" | "whiteout" | "none", printings: 1, ill: 0, title: "", score: 0.93, reads: 0 }));
 
 vi.mock("../api", async (original) => ({
   ...(await original<typeof import("../api")>()),
@@ -58,6 +58,7 @@ vi.mock("./artClient", async (original) => ({
     // Its artwork is new in each test: printings.ts keeps an artwork's printings for the session.
     const signet = () => ({ index: 4, id: "p1", name: "Arcane Signet", set: "eoc", number: "101", illustrationId: `ill-signet-${cam.ill}`, layout: "normal", printings: 3 });
     const other = { index: 9, id: "q1", name: "Stridehangar Automaton", set: "drc", number: "19", illustrationId: "ill-other", layout: "normal", printings: 2 };
+    const whiteout = { index: 12, id: "whiteout", name: "Whiteout", set: "mb2", number: "77", illustrationId: "ill-whiteout", layout: "normal", printings: 1 };
     const r: ArtRecognizer = {
       embed: `${V}/embed.onnx`,
       art: "bundle",
@@ -73,7 +74,8 @@ vi.mock("./artClient", async (original) => ({
         // "weak": the card still there, its art washed out (a foil in glare): too weak to hold it.
         // Each card's art matches surely: only the outline differs.
         const isOther = cam.card === "other" || cam.card === "otherTilted";
-        const matches = !quad ? [] : isOther ? [{ ...other, score: 0.9 }] : [{ ...signet(), score: 0.93 }, { ...other, score: 0.4 }];
+        const top = cam.card === "whiteout" ? whiteout : signet();
+        const matches = !quad ? [] : isOther ? [{ ...other, score: 0.9 }] : [{ ...top, score: cam.score }, { ...other, score: 0.4 }];
         const odd = cam.card === "tilted" || cam.card === "otherTilted" || cam.card === "column";
         return { quad, upright: 1, matches, ...(odd ? { shaped: false as const } : {}), timings: { detectMs: 1, embedMs: 1, totalMs: 2 } };
       },
@@ -90,11 +92,14 @@ vi.mock("./artClient", async (original) => ({
     return r;
   },
 }));
-vi.mock("./serverCatalog", () => ({ createServerCatalog: async () => ({ hasSet: () => false, lookup: async () => null, names: () => ["Arcane Signet", "Stridehangar Automaton"] }) }));
+vi.mock("./serverCatalog", () => ({ createServerCatalog: async () => ({ hasSet: () => false, lookup: async () => null, names: () => ["Arcane Signet", "Stridehangar Automaton", "Whiteout"] }) }));
 vi.mock("./ocrEngine", async (original) => ({
   ...(await original<typeof import("./ocrEngine")>()),
   // A title read gives `cam.title` (the card's name, read off it); nothing else reads.
-  createScannerOcr: async () => ({ engine: "tesseract", read: async (_img: unknown, o: { mode: string }) => (o.mode === "line" && cam.title ? { text: cam.title, confidence: 95 } : { text: "", confidence: 0 }), terminate: async () => undefined }),
+  createScannerOcr: async () => ({ engine: "tesseract", read: async (_img: unknown, o: { mode: string }) => {
+    if (o.mode === "line") cam.reads += 1;
+    return o.mode === "line" && cam.title ? { text: cam.title, confidence: 95 } : { text: "", confidence: 0 };
+  }, terminate: async () => undefined }),
 }));
 vi.mock("./sounds", async (original) => ({ ...(await original<typeof import("./sounds")>()), playScanSound: () => undefined, playPriceSound: () => undefined }));
 
@@ -137,7 +142,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(cam, { card: "signet", printings: 1, ill: cam.ill + 1, title: "" });
+  Object.assign(cam, { card: "signet", printings: 1, ill: cam.ill + 1, title: "", score: 0.93, reads: 0 });
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -228,5 +233,85 @@ describe("an outline that isn't card-shaped", { timeout: 20_000 }, () => {
     await until(() => (chip().includes("Show one card at a time") ? true : null), "one card at a time");
     await wait(1000);
     expect(accepted).toHaveLength(0);
+  });
+});
+
+describe("gallery matches that need a title", { timeout: 20_000 }, () => {
+  it.each([0.93, 0.72, 0.63])("doesn't use Whiteout art alone at %s, even after repeated reads", async (score) => {
+    Object.assign(cam, { card: "whiteout", score });
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    // Wait for enough title passes that the old fallback would have named the card.
+    await until(() => (cam.reads >= 25 ? true : null), "repeated text reads", 250);
+    expect(chip()).not.toContain("Found Whiteout");
+
+    cam.title = "Whiteout";
+    await until(() => chip().includes("Found Whiteout") || null, "Whiteout read by title");
+  });
+
+  it("checks the title when a replacement card still matches the held Whiteout art", async () => {
+    Object.assign(cam, { card: "whiteout", title: "Whiteout" });
+    const accepted: string[] = [];
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async (c) => { accepted.push(c.name); return true; }} />));
+    await until(() => accepted[0] === "Whiteout" || null, "Whiteout filed");
+    await wait(400);
+    expect(accepted).toEqual(["Whiteout"]);
+
+    cam.title = "Arcane Signet";
+    await until(() => accepted[1] === "Arcane Signet" || null, "the replacement filed by its title");
+    expect(accepted).toEqual(["Whiteout", "Arcane Signet"]);
+  });
+
+  it("keeps the outgoing card held when glare makes its artwork look like Whiteout", async () => {
+    const accepted: string[] = [];
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async (c) => { accepted.push(c.name); return true; }} />));
+    await until(() => accepted[0] === "Arcane Signet" || null, "Arcane Signet filed");
+
+    Object.assign(cam, { card: "whiteout", title: "Arcane Signet" });
+    await until(() => cam.reads >= 4 || null, "held title checked repeatedly");
+    expect(accepted).toEqual(["Arcane Signet"]);
+  });
+
+  it("releases the filed name after confirming a replacement that is then skipped", async () => {
+    const accepted: string[] = [];
+    const onAccept = async (c: ScanCandidate) => { accepted.push(c.name); return true; };
+    const render = (autoAdd: boolean) => act(() => root.render(<ScannerView identityOnly autoAdd={autoAdd} closeups={false} onAccept={onAccept} />));
+    render(true);
+    await until(() => accepted[0] === "Arcane Signet" || null, "Arcane Signet filed");
+
+    render(false);
+    Object.assign(cam, { card: "whiteout", title: "Whiteout" });
+    await until(() => chip().includes("Found Whiteout") || null, "the replacement found");
+    const skip = await until(() => [...host.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Skip"), "Skip");
+    act(() => skip.click());
+
+    Object.assign(cam, { card: "signet", title: "" });
+    render(true);
+    await until(() => accepted.length === 2 || null, "Arcane Signet filed again after its return");
+    expect(accepted).toEqual(["Arcane Signet", "Arcane Signet"]);
+  });
+
+  it.each(["", "Arcane Signet"])("uses text instead of the Whiteout match on a photo with title %j", async (title) => {
+    cam.card = "whiteout";
+    vi.stubGlobal("createImageBitmap", async () => {
+      cam.title = title;
+      return { width: 640, height: 1138, close: () => undefined };
+    });
+    try {
+      act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+      await until(() => cam.reads > 0 || null, "art and OCR loaded");
+      act(() => root.render(<ScannerView identityOnly paused closeups={false} onAccept={async () => true} />));
+      const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+      const file = new File(["photo"], "scan.jpg", { type: "image/jpeg" });
+      Object.defineProperty(input, "files", { configurable: true, value: [file] });
+      act(() => input.dispatchEvent(new Event("change", { bubbles: true })));
+      if (title) {
+        await until(() => chip().includes(`Found ${title}`) || null, "photo read by title");
+      } else {
+        await until(() => chip().includes("Couldn't read that photo") || null, "unreadable photo");
+        expect(chip()).not.toContain("Found Whiteout");
+      }
+    } finally {
+      vi.stubGlobal("createImageBitmap", undefined);
+    }
   });
 });

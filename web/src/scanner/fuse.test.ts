@@ -33,7 +33,7 @@ describe("art and title together", () => {
 
   it("settles a card when a fairly clear title agrees with one of the art's matches", () => {
     const matches = [m("Bridge from Below", 0.675), m("Mind Stone", 0.6)];
-    const agree = { agree: true };
+    const agree = { agree: () => true };
     expect(fuseTitle(matches, { name: "Bridge from Below", score: 0.72, margin: 0.1 }, agree)).toEqual({ kind: "art", match: matches[0] });
     expect(fuseTitle(matches, { name: "Mind Stone", score: 0.7, margin: 0.04 }, agree)).toEqual({ kind: "art", match: matches[1] });
     // Fairly clear but naming a card the art doesn't have: no veto, nothing.
@@ -43,9 +43,9 @@ describe("art and title together", () => {
   });
 
   it("ignores an unclear title, and art too weak to count", () => {
-    expect(fuseTitle([m("Sol Ring", 0.6)], { name: "Sol Ring", score: 0.69, margin: 0.3 }, { agree: true })).toEqual({ kind: "none" });
+    expect(fuseTitle([m("Sol Ring", 0.6)], { name: "Sol Ring", score: 0.69, margin: 0.3 }, { agree: () => true })).toEqual({ kind: "none" });
     expect(fuseTitle([m("Sol Ring", 0.6)], { name: "Sol Ring", score: 0.95, margin: 0.02 })).toEqual({ kind: "none" });
-    expect(fuseTitle([m("Sol Ring", 0.45)], { name: "Sol Ring", score: 0.8, margin: 0.3 }, { agree: true })).toEqual({ kind: "none" });
+    expect(fuseTitle([m("Sol Ring", 0.45)], { name: "Sol Ring", score: 0.8, margin: 0.3 }, { agree: () => true })).toEqual({ kind: "none" });
     expect(fuseTitle([m("Sol Ring", 0.3)], { name: "Sol Ring", score: 0.95, margin: 0.3 })).toEqual({ kind: "title", name: "Sol Ring" });
     expect(fuseTitle([m("Sol Ring", 0.6)], null)).toEqual({ kind: "none" });
   });
