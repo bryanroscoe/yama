@@ -140,14 +140,14 @@ export function artHas<M extends ArtCandidate>(matches: readonly M[], name: stri
 
 /**
  * The card from the art matches (best first) and a title read: the art match the title names
- * (when the title is clear, or, with `agree`, fairly clear: TITLE_AGREES), the title's card when a
+ * (when the title is clear, or when `agree` allows a fairly clear title), the title's card when a
  * clear title names a card the art doesn't have, or nothing.
  */
-export function fuseTitle<M extends ArtCandidate>(matches: readonly M[], title: TitleRead | null, opts: { agree?: boolean } = {}): Fused<M> {
+export function fuseTitle<M extends ArtCandidate>(matches: readonly M[], title: TitleRead | null, opts: { agree?: (match: M) => boolean } = {}): Fused<M> {
   if (!title) return { kind: "none" };
   const match = artHas(matches, title.name);
   if (title.score >= TITLE_CLEAR && title.margin >= TITLE_MARGIN) return match ? { kind: "art", match } : { kind: "title", name: title.name };
-  return opts.agree && match && title.score >= TITLE_AGREES && title.margin >= AGREE_MARGIN ? { kind: "art", match } : { kind: "none" };
+  return match && title.score >= TITLE_AGREES && title.margin >= AGREE_MARGIN && opts.agree?.(match) ? { kind: "art", match } : { kind: "none" };
 }
 
 /**
