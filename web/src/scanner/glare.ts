@@ -137,3 +137,71 @@ export class TorchOnStruggle {
     if (ok) this.turnedOn = true;
   }
 }
+
+// Exposure down for glare (Bryan, 23 Nov 2026: "be nice to be able to change the exposure"; "you can
+// make a new app install. Let's make this as good as possible"). A blown-out patch of art has no
+// detail left for the art model; less exposure shrinks the blown-out area and keeps the detail under
+// a foil's sheen, and is another view of the card besides. Where the camera can change its exposure
+// (the app's own camera since #210; Chrome's where it offers it).
+
+/** Glare this long on a card the scanner is reading: the exposure goes down. */
+export const EXPOSE_GLARE_MS = 800;
+/** By this much (EV), within the camera's range. */
+export const GLARE_EV = 1;
+
+/** The camera's exposure range, in EV. */
+export interface ExposureRange {
+  min: number;
+  max: number;
+  step: number;
+}
+
+/**
+ * The exposure down while glare stays on the art of a card being read, and back to where the person
+ * had it (Scan settings) once that card is named or gone. Theirs stands: moved while down, it's left
+ * where they put it. `frame` says the exposure to set now (or null); `answered` whether it was taken.
+ */
+export class ExposureOnGlare {
+  private since: number | null = null;
+  /** Down: the exposure it went down from, and the one it set. */
+  private down: { from: number; to: number } | null = null;
+
+  /** Whether it has the exposure down now. */
+  get isDown(): boolean {
+    return !!this.down;
+  }
+
+  frame(glary: boolean, reading: boolean, now: number, exposure: number, range: ExposureRange | null): number | null {
+    if (!range) {
+      this.since = null;
+      return null;
+    }
+    if (this.down) {
+      if (reading) return null;
+      const d = this.down;
+      this.down = null;
+      this.since = null;
+      // Moved by the person meanwhile (neither where it was nor where it went): theirs stands.
+      const near = (a: number, b: number) => Math.abs(a - b) <= range.step / 2;
+      return near(exposure, d.to) || near(exposure, d.from) ? d.from : null;
+    }
+    if (!reading || !glary) {
+      this.since = null;
+      return null;
+    }
+    this.since ??= now;
+    if (now - this.since < EXPOSE_GLARE_MS) return null;
+    this.since = null;
+    const lowest = range.min;
+    const to = Math.max(lowest, exposure - GLARE_EV);
+    // Already as low as it goes: nothing to do.
+    if (to > exposure - range.step / 2) return null;
+    this.down = { from: exposure, to };
+    return to;
+  }
+
+  /** The camera's answer: not taken, so it isn't down. */
+  answered(ok: boolean): void {
+    if (!ok) this.down = null;
+  }
+}

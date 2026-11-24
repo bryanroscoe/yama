@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { artGlare, GLARE_ART, GLARE_HINT_MS, GlareWatch, TORCH_ON_MS, TorchOnStruggle } from "./glare";
+import { artGlare, EXPOSE_GLARE_MS, ExposureOnGlare, GLARE_ART, GLARE_EV, GLARE_HINT_MS, GlareWatch, TORCH_ON_MS, TorchOnStruggle } from "./glare";
 import { rectQuad } from "./image";
 import type { Quad, RgbaImage } from "./types";
 
@@ -117,3 +117,42 @@ describe("TorchOnStruggle", () => {
     for (let at = TORCH_ON_MS; at < 5 * TORCH_ON_MS; at += 100) expect(t.frame(true, false, at)).toBe(false);
   });
 });
+
+describe("ExposureOnGlare", () => {
+  const range = { min: -2, max: 2, step: 1 / 3 };
+  it("goes down a stop once glare has stayed on a card being read, and back once it's named or gone", () => {
+    const e = new ExposureOnGlare();
+    expect(e.frame(true, true, 0, 0, range)).toBeNull();
+    expect(e.frame(true, true, EXPOSE_GLARE_MS - 1, 0, range)).toBeNull();
+    expect(e.frame(true, true, EXPOSE_GLARE_MS, 0, range)).toBe(-GLARE_EV);
+    expect(e.isDown).toBe(true);
+    // Stays down while the card is read, glare or not.
+    expect(e.frame(false, true, 2000, -1, range)).toBeNull();
+    // Named (or gone): back to where it was.
+    expect(e.frame(false, false, 3000, -1, range)).toBe(0);
+    expect(e.isDown).toBe(false);
+  });
+
+  it("leaves the person's own exposure: from where they set it, and as they move it while down", () => {
+    const e = new ExposureOnGlare();
+    e.frame(true, true, 0, 0.7, range);
+    expect(e.frame(true, true, EXPOSE_GLARE_MS, 0.7, range)).toBeCloseTo(-0.3, 5);
+    // The slider moved meanwhile (to +1): not put back.
+    expect(e.frame(false, false, 3000, 1, range)).toBeNull();
+    // Already at the bottom of the range: nothing to lower.
+    const low = new ExposureOnGlare();
+    low.frame(true, true, 0, -2, range);
+    expect(low.frame(true, true, EXPOSE_GLARE_MS, -2, range)).toBeNull();
+    // A camera that can't change it, or a refusal: never down.
+    const none = new ExposureOnGlare();
+    expect(none.frame(true, true, 0, 0, null)).toBeNull();
+    expect(none.frame(true, true, EXPOSE_GLARE_MS, 0, null)).toBeNull();
+    const refused = new ExposureOnGlare();
+    refused.frame(true, true, 0, 0, range);
+    refused.frame(true, true, EXPOSE_GLARE_MS, 0, range);
+    refused.answered(false);
+    expect(refused.isDown).toBe(false);
+    expect(refused.frame(false, false, 3000, 0, range)).toBeNull();
+  });
+});
+

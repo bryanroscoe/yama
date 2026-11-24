@@ -141,9 +141,9 @@ beforeEach(() => {
     stop: () => undefined,
     getSettings: () => ({ deviceId: "x", width: 2160, height: 3840 }),
     // A Pixel's: zooms out to its ultra-wide, and a flashlight.
-    getCapabilities: () => ({ zoom: { min: 0.507, max: 30 }, torch: true }),
+    getCapabilities: () => ({ zoom: { min: 0.507, max: 30 }, torch: true, exposureCompensation: { min: -2, max: 2, step: 1 / 3 } }),
     applyConstraints: async (c: { advanced?: Record<string, unknown>[] }) => {
-      applied.push({ ...(c.advanced?.[0] ?? {}) });
+      applied.push({ ...(c.advanced?.[0] ?? {}), t: Math.round(performance.now()) });
     },
     label: "fake",
   };
@@ -229,7 +229,9 @@ describe("glare and going wide", { timeout: 20_000 }, () => {
     expect([...document.querySelectorAll(".scan-chip button")].map((b) => b.textContent)).toContain("Scan next card");
     await until(() => (zoomedTo(0.5) ? true : null), "the step out to 0.5x");
     // Glare: WIDE_GLARE_MS (1.5 s), well before the plain 3 s.
-    expect(performance.now() - laid).toBeLessThan(WIDE_AFTER_MS);
+    // (Timed by the camera's own request: the chip may say other things meanwhile.)
+    const wentAt = applied.find((a) => typeof a.zoom === "number" && Math.abs((a.zoom as number) - 0.5) < 0.02)!.t as number;
+    expect(wentAt - laid).toBeLessThan(WIDE_AFTER_MS);
   });
 
   it("turns the flashlight on for a card it can't name, says so, then says to tilt it out of the glare (23 Nov 2026, after #207)", async () => {
@@ -285,5 +287,20 @@ describe("glare and going wide", { timeout: 20_000 }, () => {
     expect(document.querySelector(".scan-step")?.textContent).toContain("The camera has zoomed in: point the box at the card's name.");
     await click(await until(() => [...document.querySelectorAll(".scan-chip button")].find((b) => b.textContent === "Back to scanning"), "Back to scanning"));
     await until(() => (applied.at(-1)?.zoom === 1 ? true : null), "back to 1x");
+  });
+
+  it("turns the exposure down a stop while glare stays on the art of a card it's reading, says so, and back when it's gone", async () => {
+    cam.card = "none";
+    act(() => root.render(<Host accepted={[]} />));
+    await until(() => document.querySelector('[aria-label="Turn the flashlight on"]'), "the camera");
+    // (The flashlight left to the person, so only the exposure is said.)
+    await click(await until(() => document.querySelector('[aria-label="Turn the flashlight on"]'), "the flashlight button"));
+    await click(await until(() => document.querySelector('[aria-label="Turn the flashlight off"]'), "the flashlight off button"));
+    cam.card = "foil";
+    const lowered = () => applied.some((a) => typeof a.exposureCompensation === "number" && Math.abs((a.exposureCompensation as number) + 1) < 0.01);
+    await until(() => (lowered() ? true : null), "the exposure down a stop");
+    await until(() => (chip().includes("Darker, to see past the glare") ? true : null), "the exposure said");
+    cam.card = "none";
+    await until(() => ([...applied].reverse().find((a) => typeof a.exposureCompensation === "number")?.exposureCompensation === 0 ? true : null), "the exposure back");
   });
 });

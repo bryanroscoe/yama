@@ -59,7 +59,7 @@ import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from 
 import { cachedFile } from "./scanCache";
 import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, closeupZoom, LENS_SWITCH, maySwitchLens, WideOnStruggle } from "./zoomPolicy";
-import { GlareWatch, TorchOnStruggle } from "./glare";
+import { ExposureOnGlare, GlareWatch, TorchOnStruggle } from "./glare";
 import { hasTextBox, SheenWatch, type FoilVerdict, type Sheen } from "./foil";
 import { agrees, FOLLOW_MOVE } from "./outline";
 import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
@@ -497,6 +497,9 @@ const FURTHER = "Hold the phone a little further away";
 const GLARE_TILT = "Glare on the card: tilt it a little";
 /** The flashlight was turned on for a card the scanner struggles with (glare.ts TorchOnStruggle), said this long. */
 const TORCH_ON = "Flashlight on, to help read the card";
+/** The exposure went down for the glare on the card being read (glare.ts ExposureOnGlare), said this long (tilting it says more). */
+const EXPOSURE_DOWN = "Darker, to see past the glare";
+const EXPOSURE_SAID_MS = 1500;
 const TORCH_ON_SAID_MS = 2500;
 
 /** A frame's glare (glare.ts), rounded for a record. */
@@ -1265,6 +1268,8 @@ function ScannerScreen({
       if (at) {
         timing.detail.torch = at.torch;
         timing.detail.zoom = Math.round(at.zoom * 100) / 100;
+        // (Its exposure compensation, where not the camera's own: the person's, or down for glare.)
+        if (at.exposure) timing.detail.exposure = Math.round(at.exposure * 100) / 100;
       }
       if (torchHelp.current.turnedOn) timing.detail.torch_on_struggle = true;
     }
@@ -1323,8 +1328,8 @@ function ScannerScreen({
     if (seek.current.frames.length >= SEEK_FRAMES) return null;
     // The camera's zoom with each frame: 0.5 when it stepped out wide (zoomPolicy.ts).
     // And the flashlight: glare on a foil is mostly its reflection (glare.ts).
-    const at = frameCam.current ?? { zoom: camRef.current.zoom, torch: camRef.current.torch };
-    const frame = { t: Date.now() - seek.current.started, zoom: Math.round(at.zoom * 100) / 100, torch: at.torch, ...note };
+    const at = frameCam.current ?? { zoom: camRef.current.zoom, torch: camRef.current.torch, exposure: camRef.current.exposure };
+    const frame = { t: Date.now() - seek.current.started, zoom: Math.round(at.zoom * 100) / 100, torch: at.torch, ...(at.exposure ? { exposure: Math.round(at.exposure * 100) / 100 } : {}), ...note };
     seek.current.frames.push(frame);
     return frame;
   };
@@ -1488,14 +1493,18 @@ function ScannerScreen({
   /** The flashlight on for a card the scanner struggles with (glare.ts), and when it went on. */
   const torchHelp = useRef(new TorchOnStruggle());
   const torchOnAt = useRef(-Infinity);
+  /** The exposure down while glare stays on the card being read (glare.ts), and when it went down. */
+  const exposeGlare = useRef(new ExposureOnGlare());
+  const exposeAt = useRef(-Infinity);
   /** The camera's zoom and flashlight as the frame being read was taken (timing records). */
-  const frameCam = useRef<{ zoom: number; torch: boolean } | null>(null);
+  const frameCam = useRef<{ zoom: number; torch: boolean; exposure?: number } | null>(null);
   /** What to do about the glare on the card being read (glare.ts), or null: shown on the camera's chip. */
   const [glareSays, setGlareSays] = useState<string | null>(null);
   const glareSaid = useRef<string | null>(null);
   const glareText = (): string | null => {
     // (Only while it's still on: turned off since, it isn't said.)
     if (performance.now() - torchOnAt.current < TORCH_ON_SAID_MS && camRef.current.torch) return TORCH_ON;
+    if (performance.now() - exposeAt.current < EXPOSURE_SAID_MS && exposeGlare.current.isDown) return EXPOSURE_DOWN;
     if (!glareNow.current.hint) return null;
     return GLARE_TILT;
   };
@@ -1519,12 +1528,23 @@ function ScannerScreen({
         if (ok) torchOnAt.current = performance.now();
       });
     }
+    // Glare staying on its art: the exposure down a stop, until it's named or gone.
+    const ev = exposeGlare.current.frame(glareNow.current.glary, true, now, c.exposure, c.caps.exposure);
+    if (ev != null)
+      void c.setExposure(ev).then((ok) => {
+        exposeGlare.current.answered(ok);
+        if (ok) exposeAt.current = performance.now();
+      });
     sayGlare();
     zoomVerdict(false, mayName);
   };
   /** The view clear of cards: the next card's glare is its own. */
   const clearGlare = () => {
     glareWatch.current.reset();
+    // The exposure back where the person had it, once the card it went down for is named or gone.
+    const c = camRef.current;
+    const back = exposeGlare.current.frame(false, false, performance.now(), c.exposure, c.caps.exposure);
+    if (back != null) void c.setExposure(back);
     glareNow.current = { glary: false, hint: false };
     // (So a flashlight the person turned back on after it went off is known to be theirs.)
     torchHelp.current.frame(false, camRef.current.torch, performance.now(), { person: camRef.current.torchTouched() });
@@ -2875,7 +2895,7 @@ function ScannerScreen({
           // settle measured nothing of its own read).
           const frameAt = Date.now();
           // The camera's zoom and flashlight as this frame was taken, for its timing record.
-          frameCam.current = { zoom: camRef.current.zoom, torch: camRef.current.torch };
+          frameCam.current = { zoom: camRef.current.zoom, torch: camRef.current.torch, exposure: camRef.current.exposure };
           // A digital zoom gives the recognizer the middle of the frame, at more of its pixels.
           const box = v.closest(".scan-camera")?.getBoundingClientRect();
           const zone = zoomRegion(v.videoWidth, v.videoHeight, digitalRef.current, box);
