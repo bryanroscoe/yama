@@ -61,6 +61,7 @@ import { NativeCameraSetting } from "./NativeCameraSetting";
 import { AUTO_MAX, AutoZoom, closeupZoom, LENS_SWITCH, maySwitchLens, WideOnStruggle } from "./zoomPolicy";
 import { ExposureOnGlare, GlareWatch, TorchOnStruggle } from "./glare";
 import { hasTextBox, SheenWatch, type FoilVerdict, type Sheen } from "./foil";
+import { outlineKind } from "./cardShape";
 import { agrees, FOLLOW_MOVE } from "./outline";
 import { cardHeight, distanceHint, tooCloseToFocus, tooFar, type FocusLens } from "./closer";
 import { createServerCatalog } from "./serverCatalog";
@@ -495,6 +496,10 @@ const SAME_CARD_MARGIN = 0.02;
 const FURTHER = "Hold the phone a little further away";
 /** Glare on the art of a card the scanner can't name yet (glare.ts): another view gets past it. */
 const GLARE_TILT = "Glare on the card: tilt it a little";
+/** A card's outline looks square (cardShape.ts): tilted too far to be named by its art. */
+const FLATTER = "Hold the card flatter";
+/** The outline isn't one card (cardShape.ts: a column of overlapping cards, a sliver): nothing is read from it. */
+const ONE_CARD = "Show one card at a time";
 /** The flashlight was turned on for a card the scanner struggles with (glare.ts TorchOnStruggle), said this long. */
 const TORCH_ON = "Flashlight on, to help read the card";
 /** The exposure went down for the glare on the card being read (glare.ts ExposureOnGlare), said this long (tilting it says more). */
@@ -2955,7 +2960,7 @@ function ScannerScreen({
               // from this frame; once it's gone, or another card lies there, that ends.
               const later = heldLater.current;
               if (later && (d.kind === "none" || d.released || (d.kind === "latched" && !sameCardName(d.key, later.name)))) later.end();
-              else if (later && d.kind === "latched" && seen.quad) {
+              else if (later && d.kind === "latched" && seen.quad && outlineKind(seen.quad) !== "junk") {
                 await later.read(toVideo(seen.quad));
                 if (stop) return;
               }
@@ -3006,6 +3011,17 @@ function ScannerScreen({
           const top = judged && judged.kind !== "none" ? judged.match : r.matches[0];
           // Glare on the card's art, measured by the recognizer on the frame it read (glare.ts).
           const glare = r.quad ? (r.glare ?? null) : null;
+          // An outline that isn't card-shaped (cardShape.ts). One card tilted until it looks square
+          // ("squat") is still in view and may be named by its title, not by its art alone. Anything
+          // else ("junk": a column of overlapping cards, a sliver) names nothing, reads nothing and
+          // touches no hold: this frame is passed over (Codex re-check of #213).
+          const kind = r.quad && r.shaped === false ? outlineKind(r.quad) : "card";
+          if (kind === "junk") {
+            zoomVerdict(!seekingRef.current);
+            if (!blocked.current && !blockedName.current && !filedName.current) setStatus(ONE_CARD);
+            return next(60);
+          }
+          const unshaped = kind === "squat";
           // The card just added stays held until it has clearly gone (hold.ts): one missed
           // detection while it's still in view, or on its way out, would add it again.
           // The held card still counts as seen when any match names it (with the set lock, the
@@ -3106,7 +3122,7 @@ function ScannerScreen({
           const faceDown = saysCardBack(r.back, top.score, LOCK_TWICE);
           // Diagnostics' timing record: the card in view appeared on this frame, or one more frame
           // read (and another card taking its place starts it again).
-          if (diagRef.current && !faceDown) appeared.current = stepAppeared(appeared.current, top.score >= ART_UNKNOWN ? top.name : null, frameAt, sameCardName);
+          if (diagRef.current && !faceDown) appeared.current = stepAppeared(appeared.current, top.score >= ART_UNKNOWN && !unshaped ? top.name : null, frameAt, sameCardName);
           // Art that leads every other card (fuse.ts: at least LEAD_FLOOR, LEAD_MARGIN ahead) settles
           // which card without the title, like a sure match, once the same card has led
           // LEAD_FRAMES frames in a row (Bryan, 18 Nov 2026: stuck about half the time; right cards
@@ -3116,7 +3132,7 @@ function ScannerScreen({
           const unlisted = r.matches[r.matches.length - 1]?.score;
           const lead = artLead(ranked, top, unlisted);
           const leadOn = leadRule();
-          const leading = leadOn && !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && !blockedName.current && leads(top.score, lead);
+          const leading = leadOn && !artUnknown && !unshaped && leadCounts({ locked: !!locked, share: leadShare() }) && !blockedName.current && leads(top.score, lead);
           // (With the gate too: a lead settles on its second read in a row, 50 ms after the first.)
           const leadFrames = leadRun.step(leading ? top.name : null);
           // A card being read to name it (a struggle, if it goes on: going wide, the glare said and the
@@ -3124,7 +3140,8 @@ function ScannerScreen({
           // pass: no stepping out under it.
           // (Art the set lock can't use for this card settles nothing: it doesn't hold the step back.)
           if (faceDown) notSeeking();
-          else seeking(glare, !artUnknown && (top.score >= LOCK_ONCE || leading), r.sheen ?? null);
+          // (Art that can't name it by itself, squat, holds nothing back.)
+          else seeking(glare, !artUnknown && !unshaped && (top.score >= LOCK_ONCE || leading), r.sheen ?? null);
           // A strong match decides by art, unless another card scores close to it. Otherwise the
           // title is read first (Bryan, 15 Nov 2026: no Star Trek card scanned; their art isn't in
           // the bundle, so lookalikes scored 0.5 to 0.8 and the scanner named them, or waited on
@@ -3145,7 +3162,7 @@ function ScannerScreen({
           // wait for a tap, so read the title too, and a clear one lets Keep going count it. Art
           // that leads has no lookalike close enough to need it.
           const rivalled = identityOnly && !leading && lookalikes(ranked, top).length > 0;
-          const readFirst = readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current, leads: leading }) || needsTitle(ranked, unlisted, { lead: leadOn });
+          const readFirst = unshaped || readTitleFirst({ score: top.score, lockOnce: LOCK_ONCE, locked: !!locked, inSet: judged?.kind === "in-set", share: poolShare.current, leads: leading }) || needsTitle(ranked, unlisted, { lead: leadOn });
           if (!readFirst && !rivalled) {
             unknownFrames = 0;
             const by = artDecides(top.score, leadFrames);
@@ -3162,8 +3179,8 @@ function ScannerScreen({
             return;
           }
           // Not while a card filed by its name is held: it may be that card, still in view.
-          // (Or what to do about the glare on it, glare.ts.)
-          if (!blockedName.current) setStatus(faceDown ? CARD_BACK : readingSays());
+          // (Or what to do about the glare on it, glare.ts; or, an outline square from tilting, to hold it flatter.)
+          if (!blockedName.current) setStatus(faceDown ? CARD_BACK : unshaped ? FLATTER : readingSays());
           // The title and text reads take seconds on a phone, and the art isn't looked at again
           // meanwhile: between them, the art has TEXT_GAP_MS of frames of its own, where a sure or
           // leading match names the card at once (Bryan, 23 Nov 2026: "Teyo was a nightmare to
@@ -3273,7 +3290,7 @@ function ScannerScreen({
             // name is held.
             untitled = prev ? untitled + 1 : 1;
             if (!prev) failedReads = 0;
-            const artLocks = top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev && untitled >= UNTITLED_FRAMES);
+            const artLocks = !unshaped && (top.score >= LOCK_ONCE || (top.score >= LOCK_TWICE && prev && untitled >= UNTITLED_FRAMES));
             if (!stop && artLocks && !artUnknown && !vetoed && !blockedName.current) {
               lockBy(top.score >= LOCK_ONCE ? "sure" : "twice");
               showArt(r, top, read(hi));
@@ -3378,7 +3395,9 @@ function ScannerScreen({
         // title is read and settles or overrules the art (fuse.ts). A lone fair match (0.62) used
         // to decide here, so a foil Westvale Abbey photo was Wei Night Raiders at 0.658 (review
         // of #138). With a set lock whose art is mostly unknown, only its own matches count.
-        if (r.quad && top && top.score >= LOCK_TWICE) {
+        // An outline that isn't one card (cardShape.ts "junk": a column, a sliver) names nothing.
+        const usable = !!r.quad && !(r.shaped === false && outlineKind(r.quad) === "junk");
+        if (usable && r.quad && top && top.score >= LOCK_TWICE) {
           const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
           const ranked = artUnknown ? [] : [...r.matches, ...(r.pool ?? [])].sort((a, b) => b.score - a.score);
           const hi = around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
@@ -3389,7 +3408,7 @@ function ScannerScreen({
           const leadOn = leadRule();
           const leading = leadOn && !artUnknown && leadCounts({ locked: !!locked, share: leadShare() }) && leads(top.score, lead);
           const photoCtx = (lock: LockRule) => ({ photo: true, top: Math.round(top.score * 1000) / 1000, lead: Math.round(lead * 1000) / 1000, lock });
-          if (!artUnknown && (top.score >= LOCK_ONCE || leading) && !needsTitle(ranked, unlisted, { lead: leadOn })) {
+          if (!artUnknown && r.shaped !== false && (top.score >= LOCK_ONCE || leading) && !needsTitle(ranked, unlisted, { lead: leadOn })) {
             bmp.close();
             if (current()) {
               scanCtx.current = photoCtx(artDecides(top.score, 1, 1) ?? "sure");
@@ -3418,7 +3437,7 @@ function ScannerScreen({
           // No clear title: read the rest of the card's text below, as for unknown art.
         }
         // A card whose art isn't known: read its text where the recognizer found it.
-        if (r.quad) {
+        if (usable && r.quad) {
           const reader = await textReader();
           const hi = around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
           const res = await readAt(hi.image, hi.quad, reader);
@@ -3657,7 +3676,9 @@ function ScannerScreen({
         const zone = video ? zoomRegion(w, h, digitalRef.current, box) : { x: 0, y: 0, w, h };
         const { image, k } = smallRegion(src, zone, canvasRef.current);
         const r = await art.identify(image);
-        if (!r.quad) return null;
+        // (Nor from an outline that isn't one card, cardShape.ts: no read, and no other card. A card
+        // tilted until it looks square is still that card: its collector line may be read.)
+        if (!r.quad || outlineKind(r.quad) === "junk") return null;
         const quad = r.quad.map(([x, y]) => [x / k + zone.x, y / k + zone.y]) as Quad;
         const all = [...r.matches, ...(r.pool ?? [])];
         const top = all.reduce<ArtMatch | null>((b, m) => (!b || m.score > b.score ? m : b), null);
