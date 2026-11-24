@@ -1,3 +1,4 @@
+import type { FoilVerdict } from "./foil";
 import type { Prices } from "./price";
 
 // Public types for the scanner. The pipeline is pure: an image goes in, ranked candidates come
@@ -97,6 +98,10 @@ export interface ScanCandidate {
   prices?: Prices | null;
   /** Filed as the dearest of printings the scanner couldn't tell apart, priced alike (Tie by price). */
   byPrice?: boolean;
+  /** The finish the scanner files it in, having judged it by its sheen (foil.ts); absent, the host's choice. */
+  finish?: "nonfoil" | "foil";
+  /** What the card's sheen said (foil.ts), for the camera's chip and the timing record. */
+  foil?: FoilVerdict;
 }
 
 export interface ScanTimings {

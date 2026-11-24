@@ -61,6 +61,22 @@ describe("test scan", () => {
     expect(host.textContent).toContain("Test scan.");
   });
 
+  it("never hands the host a card-first row, and changes Foil or Not foil on its own list only (Codex review of #211)", async () => {
+    const onProvisional = vi.fn();
+    const onFinish = vi.fn(async () => undefined);
+    const s = mount({ onAccept: vi.fn(async () => true), onProvisional, onFinish, recentCards: [], finish: "nonfoil" } as ScannerViewProps);
+    expect(s.props.onProvisional).toBe(onProvisional);
+    toggle();
+    // Card first saves through the host's own path: off in a test.
+    expect(s.props.onProvisional).toBeUndefined();
+    const c = card("Arcane Signet", { finish: "foil" });
+    await act(async () => void (await s.props.onAccept!(c, 1, true)));
+    expect(s.props.recentCards?.[0]?.finish).toBe("foil");
+    await act(async () => s.props.onFinish!(c, "nonfoil"));
+    expect(onFinish).not.toHaveBeenCalled();
+    expect(s.props.recentCards?.[0]?.finish).toBe("nonfoil");
+  });
+
   for (const [name, extra] of [
     ["the collection scanner", { recentCards: [], finish: "foil" }],
     ["a deck scan or check", { identityOnly: true, recent: ["Sol Ring"], addedCount: 1 }],

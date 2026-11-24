@@ -274,4 +274,16 @@ describe("glare and going wide", { timeout: 20_000 }, () => {
     expect(torchNow()).toBe(false);
     expect(chip()).not.toContain("Flashlight on");
   });
+
+  it("zooms in itself for the name close-up, says to point the box at the name, and zooms back after (23 Nov 2026)", async () => {
+    cam.glare = false;
+    cam.card = "foil";
+    act(() => root.render(<ScannerView onAccept={async () => true} />));
+    await until(() => document.querySelector(".scan-closeup.is-title"), "the name close-up");
+    // The card is 57% of the view's height: about 1.4x makes its name fill the box.
+    await until(() => (zoomedTo(1.4) ? true : null), "the close-up's zoom");
+    expect(document.querySelector(".scan-step")?.textContent).toContain("The camera has zoomed in: point the box at the card's name.");
+    await click(await until(() => [...document.querySelectorAll(".scan-chip button")].find((b) => b.textContent === "Back to scanning"), "Back to scanning"));
+    await until(() => (applied.at(-1)?.zoom === 1 ? true : null), "back to 1x");
+  });
 });

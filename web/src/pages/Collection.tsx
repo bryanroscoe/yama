@@ -53,6 +53,8 @@ const ScannedCard = lazy(() => scanner().then((m) => ({ default: m.ScannedCard }
 const KEEP_ADDING = "yama.scan.keepAdding";
 /** The close-up step, on unless turned off on this device (a fixed camera). Shared with the deck scan. */
 const CLOSEUPS = "yama.scan.closeups";
+/** Foil by its sheen (scanner/foil.ts), on unless turned off on this device. */
+const FOIL_BY_SHEEN = "yama.scan.foilBySheen";
 /** How long the scanner's writes go quiet before the collection's pages are fetched again. */
 const REFRESH_QUIET_MS = 1500;
 /** "Put in"'s choice that makes a new place to file into. */
@@ -863,6 +865,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   makingRef.current = making;
   const [keepAdding, setKeepAdding] = useState(() => localStorage.getItem(KEEP_ADDING) === "1");
   const [closeups, setCloseups] = useState(() => localStorage.getItem(CLOSEUPS) !== "0");
+  /** Foil by its sheen (Bryan, 23 Nov 2026: "Let's detect foils by the rainbow sheen"): on by default. */
+  const [foilBySheen, setFoilBySheen] = useState(() => localStorage.getItem(FOIL_BY_SHEEN) !== "0");
   /**
    * What this session added, newest first, so mistakes can be fixed (see scanner/session.ts). The
    * ref is the truth (read right after a write); the state mirrors it for rendering.
@@ -989,8 +993,10 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     }
     const { addOp } = await scanner();
     const box = container || null;
-    // Its only finish, else the one chosen last if it comes that way, else regular (Etched too).
-    const filed: Finish = finish === "proxy" ? "proxy" : (pickFinish({ finishes: c.finishes }, finish) as Finish);
+    // Its only finish, else the one chosen last (or the one its sheen says, scanner/foil.ts) if it
+    // comes that way, else regular (Etched too).
+    const want: Finish = finish === "proxy" ? "proxy" : (c.finish ?? finish);
+    const filed: Finish = want === "proxy" ? "proxy" : (pickFinish({ finishes: c.finishes }, want) as Finish);
     const entry: Added = {
       key: crypto.randomUUID(),
       name: c.name,
@@ -1062,7 +1068,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const a = listRef.current.find((x) => x.key === key);
     if (!a || !c.scryfall_id) return false;
     const { addOp } = await scanner();
-    const wanted = a.wanted ?? "nonfoil";
+    // (Or the finish its sheen says, scanner/foil.ts, when the one chosen was regular.)
+    const wanted = a.wanted === "proxy" ? "proxy" : (c.finish ?? a.wanted ?? "nonfoil");
     const filed: Finish = wanted === "proxy" ? "proxy" : (pickFinish({ finishes: c.finishes }, wanted) as Finish);
     patch(key, (x) => ({
       ...x,
@@ -1112,6 +1119,21 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
     const { printingFix } = await scanner();
     await fix(a, printingFix(a, { scryfall_id: to.scryfall_id, set: to.set, number: to.number, name: to.name, image: to.thumb ?? to.image ?? null, prices: to.prices, finishes: to.finishes, treatment: to.treatment }));
     return "changed";
+  };
+  /**
+   * Foil or not, from the scanner's "Added …" (Bryan, 23 Nov 2026: "it should be easier to switch
+   * between foil and not foil"): that entry's copies change finish, as the Added list's Finish does.
+   */
+  const changeFinish = async (c: ScanCandidate, to: "foil" | "nonfoil") => {
+    const key = filedAs.current.get(c);
+    const a = key ? listRef.current.find((x) => x.key === key) : undefined;
+    if (!a) throw new Error("It's no longer in the Added list");
+    if (a.finish === to) return;
+    // Checked against the copy as it is now: it may have been changed from its own view since
+    // (another printing, Proxy) after the scanner offered this (Codex review of #211).
+    if (a.finish !== "foil" && a.finish !== "nonfoil") throw new Error(`${a.name} is ${finishName(a.finish)} now: change it in its own view`);
+    if (!a.finishes?.includes(to)) throw new Error(`That printing of ${a.name} doesn't come in ${to === "foil" ? "foil" : "regular"}`);
+    await fix(a, { scryfall_id: a.scryfall_id, set: a.set, number: a.number, name: a.name, image: a.image, finish: to, finishes: a.finishes, treatment: a.treatment, copies: a.copies, prices: a.prices });
   };
   const busyMessage = (a: Added) => (a.pending?.error ? "Try the last change again first." : "Still saving the last change.");
   const fix = async (a: Added, f: Fix) => {
@@ -1256,7 +1278,7 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
   const finishOptions = [...finishesOf(printing), "proxy"];
   const finishLabel = finishName(shownFinish);
   const filedIn = placeLabel(container, containers);
-  const settingsSummary = [finishLabel, filedIn ? `into ${filedIn}` : "not filed", keepAdding && "keep adding", !closeups && "no close-ups"].filter(Boolean).join(", ");
+  const settingsSummary = [finishLabel, foilBySheen && shownFinish === "nonfoil" && "foil by its shine", filedIn ? `into ${filedIn}` : "not filed", keepAdding && "keep adding", !closeups && "no close-ups"].filter(Boolean).join(", ");
   const settings = (
     <>
       <Field label="Finish">
@@ -1309,6 +1331,19 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
       <label className="scan-keep">
         <input
           type="checkbox"
+          checked={foilBySheen}
+          onChange={(e) => {
+            setFoilBySheen(e.target.checked);
+            localStorage.setItem(FOIL_BY_SHEEN, e.target.checked ? "1" : "0");
+          }}
+        />
+        <span>
+          <strong>Foil by its shine.</strong> With the finish at Regular, a card whose text box shows a foil's rainbow is added as Foil. Foil or Not foil beside Undo changes it. Full-art and borderless cards keep the finish chosen.
+        </span>
+      </label>
+      <label className="scan-keep">
+        <input
+          type="checkbox"
           checked={closeups}
           onChange={(e) => {
             setCloseups(e.target.checked);
@@ -1349,6 +1384,8 @@ export function ScanToCollection({ containers, onClose }: { containers: Containe
           onOpenCard={setOpened}
           onProvisional={provisional}
           finish={finish}
+          foilBySheen={foilBySheen}
+          onFinish={changeFinish}
           onPrinting={setPrinting}
           controls={controls}
           settings={settings}

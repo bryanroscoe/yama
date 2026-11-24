@@ -31,7 +31,9 @@ interface Tested extends RecentCard {
 
 /** A test card's tile: its printing and price when the scanner settled one, else its name. */
 export function testedCard(card: ScanCandidate, finish: ScanFinish, key: string): Tested {
-  const filed: ScanFinish = finish === "proxy" ? "proxy" : (pickFinish({ finishes: card.finishes }, finish) as ScanFinish);
+  // (Or the finish its sheen says, foil.ts, when the one chosen is regular.)
+  const want: ScanFinish = finish === "proxy" ? "proxy" : (card.finish ?? finish);
+  const filed: ScanFinish = want === "proxy" ? "proxy" : (pickFinish({ finishes: card.finishes }, want) as ScanFinish);
   return { key, card, name: card.name, set: card.set, number: card.number, finish: filed, copies: 1, prices: card.prices ?? null, image: card.thumb ?? card.image ?? null, oracleId: card.oracle_id };
 }
 
@@ -92,6 +94,12 @@ export function useTestScan(props: ScannerViewProps): ScannerViewProps {
     put(listRef.current.map((t) => (t.key === key ? testedCard(to, finishRef.current, key) : t)));
     return "changed";
   }, []);
+  /** Foil or not on the test list only: nothing reaches the host. */
+  const flip = useCallback(async (card: ScanCandidate, to: "foil" | "nonfoil") => {
+    const key = keyOf.current.get(card);
+    if (!key || !listRef.current.some((t) => t.key === key)) throw new Error("It's no longer in the test list");
+    put(listRef.current.map((t) => (t.key === key ? { ...t, finish: to } : t)));
+  }, []);
   const entryOf = useCallback((card: ScanCandidate) => keyOf.current.get(card), []);
   const clearTested = useCallback(() => {
     put([]);
@@ -137,6 +145,9 @@ export function useTestScan(props: ScannerViewProps): ScannerViewProps {
     onAccept: accept,
     onUndo: undo,
     onCorrect: correct,
+    onFinish: props.onFinish ? flip : undefined,
+    // Card first saves its rows through the host's own path: never in a test (Codex review of #211).
+    onProvisional: undefined,
     entryOf,
     // A tile opens nothing: there is no saved copy to fix.
     onOpenCard: undefined,
