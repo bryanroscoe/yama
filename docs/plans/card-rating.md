@@ -13,7 +13,7 @@ The prototype's scripts, inputs and outputs are in a work directory outside the 
 (`~/Developer/.agent-tasks/yama-card-power-20261123/`: `work/rating.py` is the formula,
 `work/final.py` prints every figure quoted here). Card data is Scryfall's bulk files of
 23 Nov 2026, and every price on this page is Scryfall's market price (USD) of that day for the
-card's cheapest printing: a dated market price, not a store quote.
+card's cheapest paper printing in any finish: a dated market price, not a store quote.
 
 ## What Yama says about a card today
 
@@ -53,7 +53,7 @@ The idea is the one EDHREC itself shows on a card's page and doesn't publish in 
 people pay: **how much do players want this card in the decks that can run it?**
 
 ```
-play share = decks(rank) / (7.8 million × color share × age share), at most 1
+play share = decks(rank) / (7.8 million × color share × age share), held between 0.000001 and 1
 index      = log10(play share)
            + 0.75 × log10(price + 0.25)        price held between $0.50 and $60
            + 0.2  × log10(1 + two-card combos)
@@ -92,7 +92,8 @@ without a rank get no rating.
 The inputs are in Yama's database already (`cards.edhrec_rank`, color identity, prices,
 `printings.set_type`, `spellbook_combos`, the commander evidence), with two differences from the
 prototype to settle and remeasure when it is built: Yama's Spellbook import leaves out combos
-that need a card as the commander, which the prototype counted; and the commander evidence comes
+that need a card as the commander, that repeat a card or that want more than one copy, which
+the prototype counted; and the commander evidence comes
 from datasets with their own attribution (Playgroup.gg, Mythic Tools), which a page showing a
 figure derived from them has to carry.
 
@@ -134,21 +135,22 @@ Read them with their weaknesses:
   hand, not fitted, but this is agreement with the checks, not a held-out test.
 - The first two sets come from lists agents built for Bryan, and cut cards are precon cards,
   which are cheap because they were just reprinted. Price alone scores 0.92 and 0.90 on them,
-  and 0.93 on Game Changers, so those three flatter anything with price in it.
+  and 0.92 on Game Changers, so those three flatter anything with price in it.
 - The cEDH sets are where price can't cheat, because tournaments allow proxies. There price
   alone scores 0.81 and 0.73, the rating without its price term 0.93 and 0.82, and the whole
   rating 0.93 and 0.83. So price is what lifts the first, second and fourth checks (without it:
-  0.81, 0.74 and 0.76) and it costs nothing where it shouldn't help. That is why it is one term
+  0.80, 0.74 and 0.76) and it costs nothing where it shouldn't help. That is why it is one term
   at weight 0.75 and not the whole rating.
 - The third set is decided mostly by the deck, so every score is weak on it. It is the one check
   the color share plainly helps (0.60 without it).
 - Taking out the combo term, the precon term, the age share or the land offset moves each check
   by 0.02 or less.
 
-Sorting the 13 Nov 2026 collection export (1,233 rated cards) into the boxes, with the existing
-rule that a land making two or more colors is a playable on both sides: of 328 cards in
-Playables, 86 leave (75 to Viable, 11 to bulk, ten of the 11 lands such as Escape Tunnel and the
-Urza lands), and 27 come in. Of 290 Viable cards, 140 drop to bulk; 32 bulk cards rise to Viable.
+Sorting the 13 Nov 2026 collection export (1,233 distinct rated card names, proxies left out)
+into the boxes, with the existing rule that a land with two or more colors in its color identity
+is a playable on both sides: of 328 cards in Playables, 86 leave (75 to Viable, 11 to bulk, ten
+of those 11 lands), and 27 come in. Of 290 Viable cards, 140 drop to bulk; 32 bulk cards rise to
+Viable.
 
 ## What it can't see
 
@@ -170,7 +172,8 @@ Urza lands), and 27 come in. Of 290 Viable cards, 140 drop to bulk; 32 bulk card
   added. They stay useful for naming a card's role.
 - **Cube Cobra Elo:** 0.51 to 0.77 alone, no gain when added, and no data licence.
 - **Mana value:** helps the cEDH sets, hurts the others.
-- **Taking off the decks a commander leads:** see "The rating"; no check improved.
+- **Taking off the decks a commander leads:** left out because it isn't known that the rank holds
+  those decks ("The rating"); its effect on the checks was mixed and under 0.01 either way.
 - **Fitting a model:** no trustworthy labels to fit to; a hand-set formula can be explained on a
   card's page.
 
@@ -215,8 +218,7 @@ Each needs its terms read and its credit shown before any of its data is stored 
    figures, a play share and the price, with no combined number.
 2. **The words and the bars.** Recommended: Top (80), Strong (68) and Playable (55) in place of
    Staple and Played, with Game Changer still a separate mark. For the boxes: Playables takes
-   Strong and up, Viable takes Playable, and "a land that makes two or more colors" stays a
-   rule of its own. On the 13 Nov export that moves 86 cards out of the Playables box and 27 in,
+   Strong and up, Viable takes Playable, and the two-color land rule stays a rule of its own. On the 13 Nov export that moves 86 cards out of the Playables box and 27 in,
    before the exceptions for cards a plan counts on or that are being sold.
 3. **cEDH data.** Make a TopDeck.gg account and key (free), or leave cEDH out for now.
 4. **Ask Playgroup.gg for a per-card file.** A short email from Bryan; they invite the request.
