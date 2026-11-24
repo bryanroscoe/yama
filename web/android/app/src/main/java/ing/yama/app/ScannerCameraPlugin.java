@@ -142,6 +142,12 @@ public class ScannerCameraPlugin extends Plugin {
     private volatile Opened opened;
     /** Counts the cameras opened, so a check scheduled for one never acts on the next. */
     private int session;
+    /**
+     * The main thread's: counts every binding of the camera, a silent camera bound again included
+     * ({@link #reopenIfSilent}), so a setting asked of one binding never settles against, or is
+     * remembered for, the next (Codex re-check of #210).
+     */
+    private int binding;
     /** Counts opens and closes, so a camera closed while it waited to open isn't opened after all. */
     private int opening;
     private CameraSelector selector;
@@ -796,6 +802,7 @@ public class ScannerCameraPlugin extends Plugin {
         torchLevel = 0;
         exposureIndex = 0;
         exposureWrites = 0;
+        binding++;
 
         CameraSelector.Builder chosenCamera = new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK);
         if (o.physicalId != null) chosenCamera.setPhysicalCameraId(o.physicalId);
@@ -870,9 +877,11 @@ public class ScannerCameraPlugin extends Plugin {
         Logger.warn(TAG, "The camera delivered no frame; opening it again (" + attempt + ")");
         try {
             provider.unbindAll();
+            // Settings asked of the last binding end with it; the exposure it took goes back on as this one opens.
+            binding++;
+            exposureWrites = 0;
             camera = provider.bindToLifecycle(getActivity(), selector, preview, analysis);
             preview.setSurfaceProvider(previewView.getSurfaceProvider());
-            // Bound again, the camera starts at 0: the exposure the page set goes back on as it opens.
             watchExposure();
         } catch (RuntimeException e) {
             Logger.warn(TAG, "Opening the camera again: " + e.getMessage());
@@ -897,6 +906,7 @@ public class ScannerCameraPlugin extends Plugin {
         }
         unwatchExposure();
         session++;
+        binding++;
         opening++;
         camera = null;
         preview = null;
@@ -1110,11 +1120,20 @@ public class ScannerCameraPlugin extends Plugin {
         Boolean torch = call.getBoolean("torch");
         if (torch != null || level != null) {
             boolean on = torch != null ? torch : level > 0;
-            if (on && level != null && level > 0 && info.isTorchStrengthSupported()) {
-                torchLevel = Math.max(1, Math.min(info.getMaxTorchStrengthLevel(), level));
+            Integer state = info.getTorchState().getValue();
+            boolean lit = state != null && state == TorchState.ON;
+            boolean strength = on && level != null && level > 0 && info.isTorchStrengthSupported();
+            if (strength) torchLevel = Math.max(1, Math.min(info.getMaxTorchStrengthLevel(), level));
+            if (strength && lit) {
+                // Already lit: only the strength changes. Turning it on again would put the
+                // strength back on and cancel this change (CameraX 1.6's TorchControl).
                 pending.add(control.setTorchStrengthLevel(torchLevel));
+            } else {
+                // Turning it on applies the strength set here; that change itself isn't waited for,
+                // since the turning on cancels it.
+                if (strength) control.setTorchStrengthLevel(torchLevel);
+                pending.add(control.enableTorch(on));
             }
-            pending.add(control.enableTorch(on));
         }
         String mode = call.getString("focusMode");
         Double distance = call.getDouble("focusDistance");
@@ -1151,7 +1170,7 @@ public class ScannerCameraPlugin extends Plugin {
                 if (info.isFocusMeteringSupported(action)) control.startFocusAndMetering(action);
             }
         }
-        int mine = session;
+        int mine = binding;
         ExposureWrite write = exposure != null ? setExposure(control, exposure, mine) : null;
         if (write != null) pending.add(write.future);
         settle(call, pending, write, mine);
@@ -1178,7 +1197,7 @@ public class ScannerCameraPlugin extends Plugin {
         w.future = control.setExposureCompensationIndex(index);
         boolean[] ended = { false };
         java.util.function.Consumer<Boolean> end = took -> {
-            if (ended[0] || mine != session) return;
+            if (ended[0] || mine != binding) return;
             ended[0] = true;
             exposureWrites--;
             if (camera == null) return;
@@ -1220,14 +1239,14 @@ public class ScannerCameraPlugin extends Plugin {
         int[] left = { pending.size() };
         boolean[] excused = { false };
         Runnable finish = () -> {
-            if (camera == null || mine != session) {
+            if (camera == null || mine != binding) {
                 call.reject("The camera closed", "closed");
                 return;
             }
             for (ListenableFuture<?> done : pending) {
-                // Only an excused exposure can still be running; the rest are done, and get() only
-                // reads how each ended.
-                if (!done.isDone()) continue;
+                // An excused exposure has its outcome, taken, whatever it does later; the rest are
+                // done, and get() only reads how each ended.
+                if (excused[0] && exposure != null && done == exposure.future) continue;
                 try {
                     done.get();
                 } catch (Exception e) {

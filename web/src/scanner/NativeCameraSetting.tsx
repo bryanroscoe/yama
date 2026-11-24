@@ -1,7 +1,7 @@
 // Scan settings, inside the Android app only: use the app's own camera (nativeCamera.ts), and how
 // it's set. On by default where the app has it, remembered on this device.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button, Field } from "../components/ui";
 import { clampExposure } from "./camera";
 import type { SourceInfo } from "./cameraSource";
@@ -67,23 +67,46 @@ export function NativeCameraSetting({
    */
   const [evPending, setEvPending] = useState<number | null>(null);
   const [evRefused, setEvRefused] = useState(false);
+  /** The props as last rendered, so a camera's late answer is saved into the option as it is now. */
   const latest = useRef({ option, onChange, camera });
   latest.current = { option, onChange, camera };
-  const evQueue = useRef<{ busy: boolean; next: number | null }>({ busy: false, next: null });
+  /**
+   * Each value queued with the camera it was meant for. Closed (Scan settings shut), nothing more
+   * is sent or saved: another Scan settings may have saved a newer choice since (Codex re-check of
+   * #210). A value for a camera no longer open is dropped.
+   */
+  const evQueue = useRef<{ busy: boolean; next: { ev: number; camera: NativeCamera } | null; open: boolean }>({ busy: false, next: null, open: true });
+  useEffect(() => {
+    const q = evQueue.current;
+    q.open = true;
+    return () => {
+      q.open = false;
+      q.next = null;
+    };
+  }, []);
+  // Another camera: what was dragged on the last one means nothing here.
+  useEffect(() => {
+    evQueue.current.next = null;
+    setEvPending(null);
+    setEvRefused(false);
+  }, [camera]);
   const sendExposure = (ev: number) => {
     const q = evQueue.current;
-    q.next = ev;
+    if (!camera) return;
+    q.next = { ev, camera };
     setEvPending(ev);
     if (q.busy) return;
     q.busy = true;
     void (async () => {
-      while (q.next != null) {
-        const want = q.next;
+      while (q.next != null && q.open) {
+        const { ev: want, camera: cam } = q.next;
         q.next = null;
-        const cam = latest.current.camera;
-        const took = cam ? await cam.setExposure(want).catch(() => false) : false;
-        // A newer one is on its way: only the last is saved and said.
-        if (q.next != null) continue;
+        if (latest.current.camera !== cam) continue;
+        const took = await cam.setExposure(want).catch(() => false);
+        if (!q.open) break;
+        // A newer one is on its way (only the last is saved and said), or this camera has gone.
+        if (q.next != null || latest.current.camera !== cam) continue;
+        // Only the exposure, into the option as it is now.
         if (took) latest.current.onChange({ ...latest.current.option, exposure: want });
         setEvRefused(!took);
         setEvPending(null);

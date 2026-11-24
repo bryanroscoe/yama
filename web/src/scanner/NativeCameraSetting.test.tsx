@@ -172,6 +172,39 @@ describe("NativeCameraSetting", () => {
     expect(changes).toEqual([{ ...OFF, on: true, exposure: -0.5 }]);
   });
 
+  it("sends and saves nothing more once Scan settings closes mid-drag: another may have saved a newer choice (Codex re-check of #210)", async () => {
+    const { camera, asked, answer } = exposureCamera();
+    const changes: NativeCameraOption[] = [];
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true }} onChange={(o) => changes.push(o)} info={null} camera={camera} />));
+    const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!;
+    slide(slider, -1);
+    slide(slider, -2);
+    act(() => root.render(<div />));
+    await answer(true);
+    expect(asked).toEqual([-1]);
+    expect(changes).toEqual([]);
+  });
+
+  it("never sends one camera's drag to the next, nor saves the last camera's answer", async () => {
+    const a = exposureCamera();
+    const b = exposureCamera();
+    const changes: NativeCameraOption[] = [];
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true }} onChange={(o) => changes.push(o)} info={null} camera={a.camera} />));
+    slide(host.querySelector<HTMLInputElement>('input[type="range"]')!, -1);
+    slide(host.querySelector<HTMLInputElement>('input[type="range"]')!, -2);
+    // Another lens opened while the first answer was on its way.
+    act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true }} onChange={(o) => changes.push(o)} info={null} camera={b.camera} />));
+    expect(host.textContent).toContain("Exposure 0, the camera's own");
+    slide(host.querySelector<HTMLInputElement>('input[type="range"]')!, 0.5);
+    await a.answer(true);
+    expect(a.asked).toEqual([-1]);
+    expect(changes).toEqual([]);
+    // The new camera's own value goes to it, and is saved once it has it.
+    expect(b.asked).toEqual([0.5]);
+    await b.answer(true);
+    expect(changes).toEqual([{ ...OFF, on: true, exposure: 0.5 }]);
+  });
+
   it("says where the camera really is when that isn't the setting (refused as it opened, or lowered by the scanner)", () => {
     const { camera } = exposureCamera(-1.5);
     act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true, exposure: 0 }} onChange={() => undefined} info={null} camera={camera} />));
