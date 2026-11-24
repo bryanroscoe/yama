@@ -36,5 +36,13 @@ describe("only a card-shaped outline is a card (cardShape.ts)", () => {
     const crossed: Quad = [[0, 0], [630, 880], [630, 0], [0, 880]];
     expect(quadShape(crossed).convex).toBe(false);
     expect(cardShaped(crossed)).toBe(false);
+    // Concave, with card-like sides and no corner under 55 degrees: refused for that alone (Codex review of #213).
+    const dent: Quad = [[49, 138], [377, 767], [487, 588], [798, 169]];
+    const d = quadShape(dent);
+    expect(d.convex).toBe(false);
+    expect(d.ratio).toBeGreaterThan(1.1);
+    expect(d.ratio).toBeLessThan(1.8);
+    expect(d.minAngle).toBeGreaterThanOrEqual(55);
+    expect(cardShaped(dent)).toBe(false);
   });
 });

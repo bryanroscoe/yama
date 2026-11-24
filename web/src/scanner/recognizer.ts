@@ -75,6 +75,12 @@ export interface Recognition {
   /** The sheen of the card's text box (foil.ts), measured here for the same reason. With a card only. */
   sheen?: Sheen;
   /**
+   * False when the outline isn't card-shaped (cardShape.ts: a column of overlapping cards, a sliver,
+   * a card tilted far enough to look square): its art match may not name the card by itself, though
+   * the card is still in view (its holds stand, its title may be read). Absent when it is card-shaped.
+   */
+  shaped?: false;
+  /**
    * `cuts`: frame cuts the art model embedded (all of them, or fewer when the first stage of a cascade
    * settled it). `runs`: each graph run's milliseconds this frame, by graph (the speed test, speed.ts,
    * reads them: a detector pass, the art embedding, the search).
@@ -630,8 +636,7 @@ export async function createRecognizer(
       if (coarse.vote < EMPTY && whole > constants.scene * 1.1) coarse = await detect(frame, { ...centre, side: whole }, detector, runs);
       fine = coarse.vote >= EMPTY ? await detect(frame, around(coarse), detector, runs) : coarse;
     }
-    // (And card-shaped, cardShape.ts: a column or a sliver isn't one card.)
-    const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardShaped(fine.quad) && cardDetail(frame, fine.quad) >= MIN_DETAIL;
+    const inView = fine.vote >= IN_VIEW && shortSide(fine.quad) >= MIN_SHORT && cardDetail(frame, fine.quad) >= MIN_DETAIL;
     tracked = inView ? around(fine) : null;
     trackedFor = inView && wasTracking ? trackedFor + 1 : 0;
     return { fine, inView };
@@ -639,8 +644,7 @@ export async function createRecognizer(
 
   const locate = async (frame: RgbaImage, handed?: Handed): Promise<Located> => {
     const t0 = now();
-    // (The app's finder's outline too must be card-shaped, cardShape.ts.)
-    const { fine, inView } = handed ? { fine: { quad: handed.quad!, vote: handed.upright ?? (handed.quad ? 1 : 0) }, inView: !!handed.quad && cardShaped(handed.quad) } : await find(frame);
+    const { fine, inView } = handed ? { fine: { quad: handed.quad!, vote: handed.upright ?? (handed.quad ? 1 : 0) }, inView: !!handed.quad } : await find(frame);
     if (!inView) return { quad: null, upright: fine.vote, detectMs: now() - t0 };
     const back = isCardBack(frame, fine.quad);
     return { quad: fine.quad, upright: fine.vote, ...(back ? { back } : {}), sharpness: frameSharpness(frame, fine.quad), thumb: cardThumb(frame, fine.quad), detectMs: now() - t0 };
@@ -652,8 +656,7 @@ export async function createRecognizer(
     const runs = noRuns();
     const remote: RemoteRun | undefined = opts.remote ? { embed: opts.remote, reads: 0, ms: [] } : undefined;
     const upright = handed.upright ?? (handed.quad ? 1 : 0);
-    // No card, or the app's finder outlined something that isn't one (cardShape.ts): nothing to match.
-    if (!handed.quad || !cardShaped(handed.quad)) {
+    if (!handed.quad) {
       turns.forget();
       return { quad: null, upright, matches: [], pool: pool && gallery ? [] : undefined, timings: { detectMs: 0, embedMs: 0, totalMs: now() - t0, cuts: 0, runs } };
     }
@@ -685,6 +688,7 @@ export async function createRecognizer(
       ...(back ? { back } : {}),
       glare: artGlare(frame, quad),
       sheen: cardSheen(frame, quad),
+      ...(cardShaped(quad) ? {} : { shaped: false as const }),
       timings: { detectMs: 0, embedMs: t2 - t0, totalMs: t2 - t0, cuts, runs },
       ...(turned ? { turned } : {}),
       ...(remote ? { remote: { reads: remote.reads, ms: remote.ms, ...(remote.failed ? { failed: remote.failed } : {}) } } : {}),
@@ -695,13 +699,13 @@ export async function createRecognizer(
     const t0 = now();
     const runs = noRuns();
     // The gate's read: the finder already placed the card in this frame (`locate`).
-    const { fine, inView } = at ? { fine: { quad: at, vote: 1 }, inView: cardShaped(at) } : await find(frame, runs);
+    const { fine, inView } = at ? { fine: { quad: at, vote: 1 }, inView: true } : await find(frame, runs);
     const t1 = now();
     onSeen?.(inView ? fine.quad : null);
     const back = inView && isCardBack(frame, fine.quad);
     const { cuts, ...found } = inView ? await match(frame, fine.quad, runs) : { matches: [], pool: pool && gallery ? [] : undefined, cuts: 0 };
     const t2 = now();
-    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, ...(back ? { back } : {}), ...(inView ? { glare: artGlare(frame, fine.quad), sheen: cardSheen(frame, fine.quad) } : {}), timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts, runs } };
+    return { quad: inView ? fine.quad : null, upright: fine.vote, ...found, ...(back ? { back } : {}), ...(inView ? { glare: artGlare(frame, fine.quad), sheen: cardSheen(frame, fine.quad), ...(cardShaped(fine.quad) ? {} : { shaped: false as const }) } : {}), timings: { detectMs: t1 - t0, embedMs: t2 - t1, totalMs: t2 - t0, cuts, runs } };
   };
 
   // Each graph's first run sets up its kernels; pay that before the first real frame.
