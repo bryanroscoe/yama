@@ -21,7 +21,7 @@
 // on a frame from the page (the speed test).
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
-import { cameraInfo } from "./camera";
+import { cameraInfo, type ExposureSetter } from "./camera";
 import { CUT_SIDE, cutBox, draw, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
 import { RECOGNIZER_SHORT_SIDE } from "./artClient";
 import { canFit, DEFAULT_ASPECT, fitPicture } from "./fit";
@@ -542,9 +542,9 @@ export interface NativeCamera extends CameraSource {
   /**
    * The exposure (EV) now, from Scan settings, once the camera is ready: through the camera
    * controls this camera is attached to (camera.tsx, so their `exposure` stays true), else straight
-   * to the camera. Whether it took it.
+   * to the camera. Whether it took it. `cancelled` is asked right before it reaches the camera.
    */
-  setExposure(ev: number): Promise<boolean>;
+  setExposure: ExposureSetter;
   /** Time every way a frame can cross to the page. */
   bench(frames?: number): Promise<BenchRow[]>;
   /**
@@ -621,7 +621,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   const cleanups: (() => void)[] = [];
   const sent: { zoom?: number; torch?: boolean; focus?: string; point?: string; exposure?: number } = {};
   /** The camera controls' own exposure setter for this camera, while they hold it (camera.tsx, `ExposureBound`). */
-  let lentExposure: ((ev: number) => Promise<boolean>) | null = null;
+  let lentExposure: ExposureSetter | null = null;
   // Away and back, the camera starts again with its flashlight off and its focus its own: what
   // was sent is forgotten, so the next change sends everything camera.tsx holds. (The exposure the
   // app sets again by itself as the camera reopens, ScannerCameraPlugin.watchExposure.)
@@ -762,7 +762,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     },
     stop() {},
     /** camera.tsx lends its exposure setter for this camera while this is the track it controls. */
-    bindExposure(set: ((ev: number) => Promise<boolean>) | null) {
+    bindExposure(set: ExposureSetter | null) {
       lentExposure = set;
     },
   } as unknown as MediaStreamTrack;
@@ -948,7 +948,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       if (closed || !described || !described.torch || !torchLevel || described.torchLevels <= 1) return;
       await set({ torch: true, torchLevel });
     },
-    async setExposure(ev) {
+    async setExposure(ev, cancelled) {
       if (closed || !Number.isFinite(ev)) return false;
       // Never while the camera opens: that sets the saved exposure, and a change now would cancel
       // it in CameraX and land outside camera.tsx's queue. Once ready, the scanner has attached the
@@ -958,8 +958,8 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       } catch {
         return false;
       }
-      if (closed || !described) return false;
-      if (lentExposure) return lentExposure(ev);
+      if (closed || !described || cancelled?.()) return false;
+      if (lentExposure) return lentExposure(ev, cancelled);
       try {
         await track.applyConstraints({ advanced: [{ exposureCompensation: ev } as MediaTrackConstraintSet] });
         return true;

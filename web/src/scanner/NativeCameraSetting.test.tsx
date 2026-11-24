@@ -101,10 +101,13 @@ describe("NativeCameraSetting", () => {
   function exposureCamera(at = 0) {
     const asked: number[] = [];
     const answers: ((took: boolean) => void)[] = [];
+    /** What each call was given to ask, right before it reaches the camera, whether it's still wanted. */
+    const cancelled: (() => boolean)[] = [];
     const camera = {
       described: () => ({ lenses: [], fpsRanges: [], torchLevels: 1, exposure: { ...EXPOSURE, ev: at } }),
-      setExposure: (ev: number) => {
+      setExposure: (ev: number, gone?: () => boolean) => {
         asked.push(ev);
+        if (gone) cancelled.push(gone);
         return new Promise<boolean>((r) => answers.push(r));
       },
     } as unknown as NativeCamera;
@@ -114,7 +117,7 @@ describe("NativeCameraSetting", () => {
         await new Promise((r) => setTimeout(r, 0));
       });
     };
-    return { camera, asked, answer };
+    return { camera, asked, answer, cancelled };
   }
   const slide = (slider: HTMLInputElement, v: number) =>
     act(() => {
@@ -173,13 +176,16 @@ describe("NativeCameraSetting", () => {
   });
 
   it("sends and saves nothing more once Scan settings closes mid-drag: another may have saved a newer choice (Codex re-check of #210)", async () => {
-    const { camera, asked, answer } = exposureCamera();
+    const { camera, asked, answer, cancelled } = exposureCamera();
     const changes: NativeCameraOption[] = [];
     act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true }} onChange={(o) => changes.push(o)} info={null} camera={camera} />));
     const slider = host.querySelector<HTMLInputElement>('input[type="range"]')!;
     slide(slider, -1);
     slide(slider, -2);
+    expect(cancelled[0]!()).toBe(false);
     act(() => root.render(<div />));
+    // One still waiting behind the camera's other changes isn't applied either (Codex final check of #210).
+    expect(cancelled[0]!()).toBe(true);
     await answer(true);
     expect(asked).toEqual([-1]);
     expect(changes).toEqual([]);
@@ -194,6 +200,7 @@ describe("NativeCameraSetting", () => {
     slide(host.querySelector<HTMLInputElement>('input[type="range"]')!, -2);
     // Another lens opened while the first answer was on its way.
     act(() => root.render(<NativeCameraSetting option={{ ...OFF, on: true }} onChange={(o) => changes.push(o)} info={null} camera={b.camera} />));
+    expect(a.cancelled[0]!()).toBe(true);
     expect(host.textContent).toContain("Exposure 0, the camera's own");
     slide(host.querySelector<HTMLInputElement>('input[type="range"]')!, 0.5);
     await a.answer(true);

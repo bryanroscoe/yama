@@ -33,8 +33,14 @@ const NO_CAPS: CameraCaps = { torch: false, zoom: null, exposure: null };
  * says what the camera was last set to.
  */
 export interface ExposureBound {
-  bindExposure?(set: ((ev: number) => Promise<boolean>) | null): void;
+  bindExposure?(set: ExposureSetter | null): void;
 }
+
+/**
+ * Set the exposure (EV): whether the camera took it. `cancelled`, asked right before the change is
+ * applied, drops it (Scan settings closed while it queued behind other camera changes).
+ */
+export type ExposureSetter = (ev: number, cancelled?: () => boolean) => Promise<boolean>;
 /** Zoom levels offered, kept to what the camera allows. */
 const LEVELS = [1, 1.5, 2, 3, 4];
 /** Digital zoom stops here: past it the frame is too few pixels to be worth it. */
@@ -74,9 +80,10 @@ export function serialApplier(apply: (t: MediaStreamTrack, all: Record<string, u
       chain = p.catch(() => undefined);
       return p;
     },
-    set(t: MediaStreamTrack, patch: Record<string, unknown>): Promise<boolean> {
+    /** `skip`: asked right before it's applied; true drops it (its caller went away while it queued). */
+    set(t: MediaStreamTrack, patch: Record<string, unknown>, skip?: () => boolean): Promise<boolean> {
       const run = async () => {
-        if (current() !== t) return false;
+        if (current() !== t || skip?.()) return false;
         // A setting given as undefined is taken out (a pinned focus distance, once focus is automatic).
         const next = Object.fromEntries(Object.entries({ ...applied, ...patch }).filter(([, v]) => v !== undefined));
         await apply(t, next);
@@ -249,7 +256,7 @@ export function useCameraControls() {
   const focusRef = useRef<{ range: FocusRange | null; pinned: number | null }>({ range: null, pinned: null });
   /** Every setting applied so far, sent together (one applyConstraints can replace the last), one change at a time. */
   const applier = useRef(serialApplier((t, all) => t.applyConstraints({ advanced: [all as MediaTrackConstraintSet] }), () => track.current));
-  const apply = (t: MediaStreamTrack, patch: Record<string, unknown>) => applier.current.set(t, patch);
+  const apply = (t: MediaStreamTrack, patch: Record<string, unknown>, skip?: () => boolean) => applier.current.set(t, patch, skip);
   /** The capabilities of the camera open now (the state above is for rendering). */
   const capsRef = useRef<CameraCaps>(NO_CAPS);
   /** The person zoomed (+, − or a pinch): auto-zoom leaves it to them for the session. */
@@ -258,13 +265,14 @@ export function useCameraControls() {
    * Set the exposure compensation (EV, kept to the camera's range and step; 0 is the camera's own):
    * whether `t`, the camera open now, took it (false: another camera by then, none to change, or refused).
    */
-  const exposeOn = useCallback(async (t: MediaStreamTrack | null, ev: number): Promise<boolean> => {
+  const exposeOn = useCallback(async (t: MediaStreamTrack | null, ev: number, cancelled?: () => boolean): Promise<boolean> => {
     const range = capsRef.current.exposure;
-    if (!t || track.current !== t || !range || !Number.isFinite(ev)) return false;
+    if (!t || track.current !== t || !range || !Number.isFinite(ev) || cancelled?.()) return false;
     const want = clampExposure(range, ev);
     try {
-      // Only for the camera it was meant for (another may be open by the time it's done).
-      if (!(await apply(t, { exposureCompensation: want }))) return false;
+      // Only for the camera it was meant for (another may be open by the time it's done), and not
+      // if its caller went away while it queued.
+      if (!(await apply(t, { exposureCompensation: want }, cancelled))) return false;
       if (track.current !== t) return false;
       // What the camera says it's at, where it says.
       const reported = (t.getSettings?.() as { exposureCompensation?: number } | undefined)?.exposureCompensation;
@@ -276,7 +284,7 @@ export function useCameraControls() {
       return false;
     }
   }, []);
-  const setExposure = useCallback((ev: number) => exposeOn(track.current, ev), [exposeOn]);
+  const setExposure = useCallback<ExposureSetter>((ev, cancelled) => exposeOn(track.current, ev, cancelled), [exposeOn]);
   const attach = useCallback((t: MediaStreamTrack | null) => {
     // The camera let go no longer changes its exposure through these controls.
     if (track.current !== t) (track.current as ExposureBound | null)?.bindExposure?.(null);
@@ -310,7 +318,7 @@ export function useCameraControls() {
     // the exposure chosen in Scan settings (the app's camera, nativeCamera.ts).
     const now = (t?.getSettings?.() as { exposureCompensation?: number } | undefined)?.exposureCompensation;
     setExposureState(capsRef.current.exposure && fin(now) ? now : 0);
-    if (t) (t as ExposureBound).bindExposure?.((ev) => exposeOn(t, ev));
+    if (t) (t as ExposureBound).bindExposure?.((ev, cancelled) => exposeOn(t, ev, cancelled));
     setError(null);
   }, []);
   /** The person has used the flashlight button this session: the scanner then never touches it (glare.ts TorchOnStruggle). */

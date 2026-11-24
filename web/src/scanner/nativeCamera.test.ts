@@ -605,6 +605,10 @@ describe("the app's camera's controls, as a track", () => {
     // The opening's own exposure went to the camera alone; the slider's through the controls.
     expect(f.sets).toEqual([{ exposure: -1 }]);
     expect(lent).toEqual([0.5]);
+    // Its caller gone by the time the camera is ready: nothing is sent.
+    expect(await cam.setExposure(1, () => true)).toBe(false);
+    expect(lent).toEqual([0.5]);
+    expect(f.sets).toHaveLength(1);
     cam.close();
   });
 

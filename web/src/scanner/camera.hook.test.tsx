@@ -309,6 +309,38 @@ describe("exposure (23 Nov 2026)", () => {
     act(() => root.unmount());
   });
 
+  it("drops an exposure whose caller went away while it queued behind another change (Codex final check of #210)", async () => {
+    const { ref, root } = probe();
+    let release!: () => void;
+    const slow = new Promise<void>((r) => (release = r));
+    let first = true;
+    const a = exposureCamera({
+      apply: () => {
+        if (!first) return Promise.resolve();
+        first = false;
+        return slow;
+      },
+    });
+    act(() => ref.cam.attach(a.t));
+    let gone = false;
+    let lit!: Promise<boolean>;
+    let took!: Promise<boolean>;
+    act(() => {
+      lit = ref.cam.setTorch(true);
+      took = ref.cam.setExposure(-1, () => gone);
+    });
+    // Scan settings closed while the flashlight's change held the queue.
+    gone = true;
+    await act(async () => {
+      release();
+      expect(await lit).toBe(true);
+      expect(await took).toBe(false);
+    });
+    expect(a.asked).toEqual([{ torch: true }]);
+    expect(ref.cam.exposure).toBe(0);
+    act(() => root.unmount());
+  });
+
   it("lends a camera that changes its own exposure (the app's, from Scan settings) its setter, bound to that camera", async () => {
     const { ref, root } = probe();
     const a = exposureCamera();
