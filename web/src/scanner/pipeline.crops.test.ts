@@ -38,16 +38,12 @@ describe("the collector line's crops", () => {
     expect(r.widths[0]!).toBeGreaterThan(r.widths[1]!);
   });
 
-  it("reads the bottom right unless the caller says the left read the number", async () => {
-    // No judge (no evidence yet): read, as it always was.
+  it("reads the bottom right whenever the frame wasn't settled on the left", async () => {
     const r = reader(["U 0218", "U 0218", "x"]);
     expect(await readAll(r.ocr)).toHaveLength(3);
-    // The left read the number: not read.
-    const told = reader(["U 0218", "U 0218", "x"]);
-    expect(await readAll(told.ocr, { right: (so) => !so.some((t) => t.includes("0218")) })).toEqual(["U 0218", "U 0218"]);
-    // An older frame, its number at the right end of the legal line: read.
-    const old = reader(["ILLUS. CORY GODBEY", "© 201 2", "TM & © 2012 WIZARDS 59/274"]);
-    expect(await readAll(old.ocr, { right: () => true })).toEqual(["ILLUS. CORY GODBEY", "© 201 2", "TM & © 2012 WIZARDS 59/274"]);
+    // The left read a number, but the caller's evidence isn't settled: the right is read too.
+    const unsettled = reader(["U 0218", "U 0218", "x"]);
+    expect(await readAll(unsettled.ocr, { done: () => false })).toEqual(["U 0218", "U 0218", "x"]);
   });
 
   it("stops a frame at the crop the caller says is enough", async () => {
@@ -59,13 +55,19 @@ describe("the collector line's crops", () => {
   });
 
   it("judges the bottom right by its own strip when the left corner's is turned away (review of #217)", async () => {
-    // The left corner in glare, the right clear: only the right is read.
-    let call = 0;
+    // The card's bottom left blank (a corner in glare reads flat), its bottom right printed: the
+    // gate measures each strip from the image itself.
+    const img = image(730, 980);
+    for (let y = 842; y < 922; y += 1) for (let x = 370; x < 660; x += 1) if (x % 6 < 3) img.data.fill(20, (y * 730 + x) * 4, (y * 730 + x) * 4 + 3);
+    const sharp = (q: StripQuality) => q.sharpness > 50;
     const r = reader(["TM & © 2012 WIZARDS 59/274"]);
-    const gated: StripQuality[] = [];
-    const reads = await readAll(r.ocr, { gate: (q) => (gated.push(q), ++call > 1) });
+    const gated: number[] = [];
+    const reads: string[] = [];
+    for await (const text of readCollectorLines(img, quad, r.ocr, { gate: (q) => (gated.push(Math.round(q.sharpness)), sharp(q)) })) reads.push(text);
     expect(reads).toEqual(["TM & © 2012 WIZARDS 59/274"]);
     expect(gated).toHaveLength(2);
+    expect(gated[0]).toBeLessThan(50);
+    expect(gated[1]).toBeGreaterThan(50);
     // Both turned away (a blurred card): nothing is read.
     const blurred = reader(["x"]);
     expect(await readAll(blurred.ocr, { gate: () => false })).toEqual([]);

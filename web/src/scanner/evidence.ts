@@ -147,6 +147,14 @@ export function withoutTotals(text: string): string {
   return text.replace(/(\d{1,4})\s*\/\s*(\d{1,4})/g, (_, n: string, t: string) => (Number(t) >= 20 && Number(t) >= Number(n) ? n : " "));
 }
 
+/**
+ * A year OCR split with a space ("201 2", "20 12": the legal line's "© 2012") taken out, so its parts
+ * aren't read as collector numbers (independent re-check of #217: "201" counted as a reprint's #201
+ * on an older card whose own number was at the right). A zero-padded number split the same way
+ * ("02 86") is no year, and stays.
+ */
+export const withoutSplitYears = (text: string): string => text.replace(/\b(\d{1,3}) +(\d{1,3})\b/g, (m, a: string, b: string) => (/^(?:19|20)\d\d$/.test(a + b) ? " " : m));
+
 /** Language codes a set code can be glued to ("MOMEEN", "MOMENJRYAN": the bullet, or the artist's brush, read as a letter). */
 const GLUED_LANG = new RegExp(
   `^([A-Z0-9]{3,5}?)[EO]?(${Object.keys(LANGS)
@@ -168,7 +176,7 @@ const GLUED_LANG = new RegExp(
  * code is lost that way settles on its number when that's enough (numberAlone).
  */
 export const tokens = (text: string) => {
-  const clean = withoutTotals(text).toUpperCase();
+  const clean = withoutSplitYears(withoutTotals(text)).toUpperCase();
   const read = clean.split(/[^A-Z0-9]+/).filter(Boolean);
   const extra: string[] = [];
   for (const line of clean.split(/\n+/)) {
@@ -394,38 +402,24 @@ export class Evidence {
 
   /**
    * Whether one frame's reads so far, its crops read in turn (pipeline.ts, `readCollectorLines`'
-   * `done`), hold all a frame of this card can add: the leading printing's number read exactly as
-   * printed and its set code exactly (or it prints none), with no twin for another crop to tell
-   * apart. The frame's other crops would then read the same pixels again: the time is better spent
-   * on the next frame (Bryan, 25 Nov 2026: "we still struggle to quickly find a high-quality version
-   * of the card number"). Not merely because the reads so far would settle it: one settled by its
-   * number alone hasn't read a set code on this frame, and another crop could read one against it
-   * (independent review of #217).
+   * `done`), settle the printing and hold all a frame of it can add: its number read exactly as
+   * printed and its set code exactly (or it prints none). The frame's other crops would then read
+   * the same pixels again, and the bottom right (where older frames print the number) too: the time
+   * is better spent on the next card (Bryan, 25 Nov 2026: "we still struggle to quickly find a
+   * high-quality version of the card number"). Not on a settle by the number alone (no set code read
+   * on this frame: another crop could read one against it), nor while the reads leave it unsure
+   * (another crop could settle it, or another printing): those frames are read whole, the bottom
+   * right included, as every frame was (independent review and re-check of #217).
    */
   frameDone(reads: readonly string[]): boolean {
-    const n = this.leaderNumber(reads);
-    return !!n && (n.read.exactSet || !n.lead.e.printsSet);
-  }
-
-  /**
-   * Whether one frame's reads so far hold the leading printing's number exactly as printed, with no
-   * twin to tell apart: then the bottom right of the card, where older frames print it, has nothing
-   * to add (pipeline.ts, `readCollectorLines`' `right`). Stray digits (a year split by OCR, a set
-   * code's, power and toughness) aren't a number here, as they would be to a count of digits.
-   */
-  numberRead(reads: readonly string[]): boolean {
-    return !!this.leaderNumber(reads);
-  }
-
-  private leaderNumber(reads: readonly string[]): { lead: Tally; read: FieldScores } | null {
-    if (!reads.some((r) => r.trim())) return null;
+    if (!reads.some((r) => r.trim())) return false;
     const trial = this.withFrame(reads);
     const v = trial.verdict();
-    const id = v.kind === "settled" ? v.id : v.leader;
-    const lead = id ? trial.tallies.find((t) => t.e.id === id) : undefined;
-    if (!lead) return null;
+    if (v.kind !== "settled") return false;
+    const lead = trial.tallies.find((t) => t.e.id === v.id);
+    if (!lead) return false;
     const read = scoreFrame(lead.e, reads);
-    return read.printedNumber && trial.twins(lead).length === 0 ? { lead, read } : null;
+    return read.printedNumber && (read.exactSet || !lead.e.printsSet);
   }
 
   /** A copy of this evidence with one more frame added, this one left as it was. */

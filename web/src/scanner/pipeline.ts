@@ -161,13 +161,10 @@ export interface CropTime {
  * corners (when snapping moved them); then the bottom right. `timed` hears each crop's time as its
  * read comes back.
  *
- * The caller's evidence can cut a frame short:
- * - `done`, asked after each crop of the left with every read so far, ends the frame there: the
- *   reads hold all a frame of this card can add (evidence.ts, `frameDone`), so the rest would only
- *   read the same pixels again.
- * - `right`, asked once the left is read, says whether the bottom right is worth reading: not once
- *   the left has read the card's number as printed (evidence.ts, `numberRead`). Without it, the
- *   bottom right is always read.
+ * `done`, asked after each crop of the left with every read so far, ends the frame there: the
+ * caller's evidence says the reads settle the printing on its number and set code (evidence.ts,
+ * `frameDone`), so the rest, the bottom right included, would only read the same pixels again.
+ * Otherwise every crop is read, as before.
  *
  * `gate` judges the left corner's strip (quality.ts); a frame it turns away has its left unread,
  * and the bottom right is read only if its own strip passes `gate` too, so a left corner in glare
@@ -188,7 +185,6 @@ export async function* readCollectorLines(
     gate?: (q: StripQuality) => boolean;
     timed?: (t: CropTime) => void;
     done?: (reads: readonly string[]) => boolean;
-    right?: (reads: readonly string[]) => boolean;
   } = {},
 ): AsyncGenerator<string> {
   const gray = toGray(frame);
@@ -214,7 +210,6 @@ export async function* readCollectorLines(
       if (opts.done?.(reads)) return;
     }
   }
-  if (opts.right && !opts.right(reads)) return;
   if (!leftOk && !opts.gate!(stripQuality(gray, q, RIGHT_STRIP))) return;
   yield await read(q, RIGHT_COLLECTOR_REGION, 16);
 }
