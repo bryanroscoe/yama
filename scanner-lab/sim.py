@@ -93,13 +93,10 @@ def place(rng, dst, src, quad_dst, alpha=None):
     return dst * (1 - wa) + warped * wa, M
 
 
-def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, sleeve_p: float = 0.75, room=(1.15, 1.4)):
-    """`room`: how much bigger than the card the scene is (a range). The defaults draw exactly what the
-    shipped models were trained on; meta["card_quad"] is the card's true corners, for training a detector."""
-    L = level
-    # Working scale: twice the recognizer's, so textures alias on the way down as a 4K frame does.
-    final_h = rng.uniform(300, 640)
-    work_h = int(final_h * 2)
+def card_unit(card_rgb, rng, L, work_h, sleeve_p, colour="draw"):
+    """The card as the camera sees it, flat: foil sheen, a sleeve (its coloured edge, texture, haze and
+    glare) or a bare card's reflection. Returns the unit (float RGB), its alpha, the sleeve's pad and the
+    card's size inside it. `colour` fixes the sleeve's colour (a deck sleeved alike) instead of drawing it."""
     work_w = int(work_h * CARD_W / CARD_H)
     card = cv2.resize(card_rgb, (work_w, work_h), interpolation=cv2.INTER_AREA).astype(np.float32) / 255
 
@@ -112,7 +109,7 @@ def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, s
     unit = np.zeros((sh, sw, 3), np.float32)
     if sleeved:
         colours = [(0.02, 0.02, 0.02), (0.05, 0.1, 0.45), (0.5, 0.05, 0.05), (0.05, 0.35, 0.1), (0.3, 0.05, 0.4), (0.9, 0.9, 0.9), None]
-        c = colours[rng.integers(len(colours))]
+        c = colours[rng.integers(len(colours))] if isinstance(colour, str) else colour
         edge = np.ones((sh, sw, 3), np.float32) * np.float32(np.array(c) if c is not None else rng.uniform(0.2, 0.6))
         unit[:] = edge
     unit[pad:pad + work_h, pad:pad + work_w] = card
@@ -140,29 +137,14 @@ def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, s
     elif rng.random() < 0.3:  # bare card, a lamp's reflection
         blobs = soft_blobs(rng, sh, sw, 1, max(sh, sw))
         unit = unit + rng.uniform(0.2, 0.8) * L * blobs[..., None]
+    return unit, alpha, {"pad": pad, "work_w": work_w, "work_h": work_h, "sleeved": sleeved, "colour": c if sleeved else None}
 
-    # The scene: the card unit on a background, a bit of room around it.
-    room = rng.uniform(*room)
-    H, W = int(sh * room), int(sw * room * rng.uniform(0.9, 1.3))
-    scene, kind = background(rng, H, W)
-    cx, cy = W / 2 + rng.uniform(-0.08, 0.08) * W, H / 2 + rng.uniform(-0.08, 0.08) * H
-    ang = np.deg2rad(rng.normal(0, 6) if rng.random() < 0.8 else rng.uniform(-20, 20))
-    def corners(w, h, jitter):
-        pts = np.array([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]], np.float32)
-        R = np.array([[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]], np.float32)
-        pts = pts @ R.T + [cx, cy]
-        return pts + rng.normal(0, jitter, (4, 2)).astype(np.float32)
-    persp = w_j = 0.035 * sw * L
-    unit_q = corners(sw, sh, persp)
-    if kind == "box" and rng.random() < 0.7:  # cards behind in the box, peeking out above
-        for k in range(rng.integers(1, 4)):
-            off = np.array([rng.normal(0, 0.01 * sw), -rng.uniform(0.01, 0.06) * sh], np.float32)
-            behind = np.ones((sh, sw, 3), np.float32) * rng.uniform(0.02, 0.3)
-            scene, _ = place(rng, scene, behind, unit_q + off)
-    scene, M = place(rng, scene, unit, unit_q, alpha)
-    card_corners = np.float32([[pad, pad], [pad + work_w, pad], [pad + work_w, pad + work_h], [pad, pad + work_h]])
-    card_q = cv2.perspectiveTransform(card_corners[None], M)[0]
 
+def capture(scene, rng, L):
+    """The room's light and the phone's optics on a scene (float RGB, 0 to 1) at the working scale:
+    an illumination field, a colour cast, exposure and gamma, defocus, motion, noise, sharpening and
+    JPEG. Returns uint8 RGB at the same scale, and the cast."""
+    H, W = scene.shape[:2]
     # Light: an illumination field, a colour cast, exposure and gamma.
     illum = np.float32(0.55) + np.float32(0.6) * smooth_field(rng, H, W, rng.uniform(1.2, 3))
     scene = scene * (1 - L * 0.5 + L * 0.5 * illum).astype(np.float32)[..., None]
@@ -191,7 +173,43 @@ def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, s
         img = img + rng.uniform(0.2, 1.2) * (img - blur)
     img = np.clip(img, 0, 255).astype(np.uint8)
     ok, enc = cv2.imencode(".jpg", cv2.cvtColor(img, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, int(rng.uniform(55, 95))])
-    img = cv2.cvtColor(cv2.imdecode(enc, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
+    return cv2.cvtColor(cv2.imdecode(enc, cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB), cast
+
+
+def render(card_rgb: np.ndarray, rng: np.random.Generator, level: float = 1.0, sleeve_p: float = 0.75, room=(1.15, 1.4)):
+    """`room`: how much bigger than the card the scene is (a range). The defaults draw exactly what the
+    shipped models were trained on; meta["card_quad"] is the card's true corners, for training a detector."""
+    L = level
+    # Working scale: twice the recognizer's, so textures alias on the way down as a 4K frame does.
+    final_h = rng.uniform(300, 640)
+    work_h = int(final_h * 2)
+    unit, alpha, u = card_unit(card_rgb, rng, L, work_h, sleeve_p)
+    pad, work_w, sleeved = u["pad"], u["work_w"], u["sleeved"]
+    sh, sw = unit.shape[:2]
+
+    # The scene: the card unit on a background, a bit of room around it.
+    room = rng.uniform(*room)
+    H, W = int(sh * room), int(sw * room * rng.uniform(0.9, 1.3))
+    scene, kind = background(rng, H, W)
+    cx, cy = W / 2 + rng.uniform(-0.08, 0.08) * W, H / 2 + rng.uniform(-0.08, 0.08) * H
+    ang = np.deg2rad(rng.normal(0, 6) if rng.random() < 0.8 else rng.uniform(-20, 20))
+    def corners(w, h, jitter):
+        pts = np.array([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]], np.float32)
+        R = np.array([[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]], np.float32)
+        pts = pts @ R.T + [cx, cy]
+        return pts + rng.normal(0, jitter, (4, 2)).astype(np.float32)
+    persp = w_j = 0.035 * sw * L
+    unit_q = corners(sw, sh, persp)
+    if kind == "box" and rng.random() < 0.7:  # cards behind in the box, peeking out above
+        for k in range(rng.integers(1, 4)):
+            off = np.array([rng.normal(0, 0.01 * sw), -rng.uniform(0.01, 0.06) * sh], np.float32)
+            behind = np.ones((sh, sw, 3), np.float32) * rng.uniform(0.02, 0.3)
+            scene, _ = place(rng, scene, behind, unit_q + off)
+    scene, M = place(rng, scene, unit, unit_q, alpha)
+    card_corners = np.float32([[pad, pad], [pad + work_w, pad], [pad + work_w, pad + work_h], [pad, pad + work_h]])
+    card_q = cv2.perspectiveTransform(card_corners[None], M)[0]
+
+    img, cast = capture(scene, rng, L)
 
     # The browser's downscale to the recognizer's scale.
     f = 0.5
