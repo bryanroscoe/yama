@@ -993,6 +993,12 @@ function ScannerScreen({
   const noteReads = (seq: number, ev: Evidence) => {
     if (cardReads.current?.seq !== seq) cardReads.current = { seq, evs: [] };
     if (!cardReads.current.evs.includes(ev)) cardReads.current.evs.push(ev);
+    // An automatic pick waiting on a read of this card (`unreadWait`) is weighed again once one comes.
+    void ev.whenRead().then(() => {
+      if (unreadWait.current !== seq) return;
+      unreadWait.current = null;
+      setReadArrived((n) => n + 1);
+    });
   };
   /** Whether the collector line has read, for this card, something that points to a printing other than `id`. */
   const readsOther = (seq: number, id: string) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.pointsAway(id));
@@ -1000,6 +1006,13 @@ function ScannerScreen({
   const readsOutside = (seq: number) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.pointsOutside());
   /** Whether every view of this card's line so far was turned away unread as too blurred (evidence.ts, `onlyUnread`): no automatic pick by look or price yet. */
   const unreadOnly = (seq: number) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.onlyUnread) && !cardReads.current.evs.some((ev) => ev.framesRead > 0);
+  /**
+   * The card (its seq) whose automatic pick by look or price waits, unweighed, for its line's first
+   * read (`unreadOnly`); `readArrived` is bumped when it comes, so the pick is weighed then (Codex
+   * review of #217).
+   */
+  const unreadWait = useRef<number | null>(null);
+  const [readArrived, setReadArrived] = useState(0);
   /** What the hold-and-read loop has read so far, for the sheet ("Read the set code (WOC), not the number yet"). */
   const [readProgress, setReadProgress] = useState<string | null>(null);
   /** Bumped to start a new, full attempt at reading the held card's printing (Keep reading, Wrong printing). */
@@ -2470,9 +2483,16 @@ function ScannerScreen({
     const f = found;
     if (identityOnly || !look?.complete || look.seq !== foundSeq.current || lookWeighed.current === look.seq) return;
     if (!f || phase !== "found" || f.chosen || f.reading || f.misread || f.correcting || f.outside || !f.options || f.options.length < 2 || wrongOpen || paused) return;
+    // Every view of its line so far too blurred to read: nothing read could have pointed elsewhere.
+    // Weighed once a view has been read (`readArrived`), never before (evidence.ts, `onlyUnread`).
+    if (unreadOnly(look.seq)) {
+      if (unreadWait.current !== look.seq) f.rec?.note("lookSettle", { settled: false, option: lookNow, why: "unread" });
+      unreadWait.current = look.seq;
+      return;
+    }
     lookWeighed.current = look.seq;
     const seq = look.seq;
-    const got = lookSettles(f.options, look.scores, (id) => readsOther(seq, id), unreadOnly(seq));
+    const got = lookSettles(f.options, look.scores, (id) => readsOther(seq, id));
     const lead = got.lead == null ? null : Math.round(got.lead * 1000) / 1000;
     const optionOf = (id: string | undefined) => (id ? modelsInfo?.look.options.find((o) => o.id === id) : undefined);
     const now = optionOf(lookNow);
@@ -2503,7 +2523,7 @@ function ScannerScreen({
     buzzFound();
     // buzz and readsOther read refs; the rest is listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [look, found, phase, wrongOpen, paused, identityOnly, lookNow, lookTouched, modelsInfo]);
+  }, [look, found, phase, wrongOpen, paused, identityOnly, lookNow, lookTouched, modelsInfo, readArrived]);
 
   /** The found card (its seq) a tie by price was weighed for: once each. */
   const tieWeighed = useRef<number | null>(null);
@@ -2521,12 +2541,18 @@ function ScannerScreen({
     if (!tieOn || identityOnly || !f || phase !== "found" || !f.sameArt || f.chosen || f.reading || f.outside || f.misread || f.correcting || !f.options || f.options.length < 2) return;
     if ((f.method === "name" && f.confidence === 1) || wrongOpen || paused || holding || !(gaveUp || closeup === "collector" || !live)) return;
     if (lookRun.current?.seq === seq || lookTouched === seq || tieWeighed.current === seq) return;
+    // Every view of its line too blurred to read: weighed once one has been read (Keep reading), not
+    // now and never again (Codex review of #217).
+    if (unreadOnly(seq)) {
+      unreadWait.current = seq;
+      return;
+    }
     tieWeighed.current = seq;
     const pool = f.options.filter((p) => !readsOther(seq, p.scryfall_id));
     // A read naming a printing outside the list (the set lock's or the border's): it may be that one.
     // (In the finish it would be filed in: a foil by its sheen is weighed at foil prices.)
     const tf = tieFinishOf(f, pool, finish, foilBySheen);
-    const tie = tf == null || readsOutside(seq) || unreadOnly(seq) ? null : priceTie(pool, tf);
+    const tie = tf == null || readsOutside(seq) ? null : priceTie(pool, tf);
     f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high } : { tied: false, pool: pool.length });
     if (!tie || tf == null) return;
     setFound((cur) => (cur && cur === f ? { ...cur, chosen: tie.printing, how: "price", sure: true, settledId: tie.printing.scryfall_id, picking: false, tieFinish: tf } : cur));
@@ -2534,7 +2560,7 @@ function ScannerScreen({
     buzzFound();
     // buzzFound and readsOther read refs; the rest is listed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tieOn, found, phase, wrongOpen, paused, holding, gaveUp, closeup, live, look, lookTouched, identityOnly, finish]);
+  }, [tieOn, found, phase, wrongOpen, paused, holding, gaveUp, closeup, live, look, lookTouched, identityOnly, finish, readArrived]);
   // The finish changed after a tie by price settled the card, before it was added: weighed again in
   // the new finish, and if they no longer tie (or a price is missing in it), the printing is
   // unsettled again and the person picks (Codex review of #195).
@@ -4324,6 +4350,8 @@ function ScannerScreen({
       const art = artRef.current;
       const model = art?.look ?? "off";
       const candidates = f.art && opts.sameArt ? lookCandidates(pool, f.art.id.endsWith("-1")) : [];
+      // Its collector line from the frames while it still lies there.
+      const rowHold = f.art && live && camGen.current === gen ? holdForLater(row, f, pool, ev, (p) => settleRow(p, "collector")) : null;
       if (art && model !== "off" && f.art && kept.frames && candidates.length >= 2) {
         const index = f.art.index;
         tasks.push(
@@ -4334,6 +4362,9 @@ function ScannerScreen({
             // Never before the first collector-line read is in the evidence: it may point elsewhere,
             // and never on frames from a camera switched away from since (Codex review of #195).
             await firstRead;
+            // Every view of its line so far too blurred to read: the look waits for one that's read,
+            // or for the frames while it lies there to end (Codex review of #217).
+            if (ev.onlyUnread) await Promise.race([ev.whenRead(), rowHold ?? Promise.resolve()]);
             if (!row.finding || camGen.current !== gen) return;
             const got = lookSettles(pool, scores, (id) => ev.pointsAway(id), ev.onlyUnread);
             const option = slotsRef.current.look.option;
@@ -4350,10 +4381,9 @@ function ScannerScreen({
           })(),
         );
       }
-      // Its collector line from the frames while it still lies there.
-      if (f.art && live && camGen.current === gen) {
+      if (rowHold) {
         held = true;
-        tasks.push(holdForLater(row, f, pool, ev, (p) => settleRow(p, "collector")));
+        tasks.push(rowHold);
       }
       await Promise.allSettled(tasks);
       if (!row.finding || !alive.current) return;

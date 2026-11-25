@@ -437,6 +437,22 @@ describe("a frame's crops, enough", () => {
     expect(e.onlyUnread).toBe(false);
   });
 
+  it("wakes what waits for a read on the first frame that reads anything, never on a frame only tried (Codex review of #217)", async () => {
+    const e = new Evidence(signets);
+    e.markUnread();
+    let woke = false;
+    void e.whenRead().then(() => (woke = true));
+    e.frameDone(["0145 C\nWOC • EN"]);
+    e.add([""]);
+    await Promise.resolve();
+    expect(woke).toBe(false);
+    e.add(["ILLUS. JOHN AVON"]);
+    await Promise.resolve();
+    expect(woke).toBe(true);
+    // Once read, at once.
+    await expect(e.whenRead()).resolves.toBeUndefined();
+  });
+
   it("only tries the frame: the evidence is as it was", () => {
     const e = new Evidence(signets);
     e.add(["0145"]);

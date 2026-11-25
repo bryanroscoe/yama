@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Printing } from "../api";
 import type { ArtRecognizer, BundleInfo } from "./artClient";
+import type { Provisional } from "./later";
 import { saveModel } from "./models";
 import type { Quad, ScanCandidate } from "./types";
 
@@ -75,6 +76,8 @@ vi.mock("./artClient", async (original) => ({
         return look.loaded;
       },
       useLook: async (o) => void (look.loaded = o?.id ?? "off"),
+      // The frames the card was named on, kept for a card-first row's look.
+      keepLook: async () => [],
       lookAt: async (_index, candidates, onScore) => {
         look.asked += 1;
         for (const c of candidates) if (look.scores[c.id] != null) onScore(c.id, look.scores[c.id]!);
@@ -203,6 +206,58 @@ describe("the collector line from sharp frames", { timeout: 20_000 }, () => {
     quality.sharp = true;
     await until(() => (accepted.length ? accepted : null), "the card filed by itself");
     expect(accepted[0]).toMatchObject({ scryfall_id: "p2" });
+  });
+
+  it("weighs the look again once a view has been read, though the read settles nothing (Codex review of #217)", async () => {
+    saveModel("look", "look-v1-sure");
+    look.scores = { p1: 0.2, p2: 0.3, p3: 0.9 };
+    // The line, once read, gives only the artist's name: nothing for or against any printing.
+    cam.line = "ILLUS. JOHN AVON";
+    const accepted: ScanCandidate[] = [];
+    act(() =>
+      root.render(
+        <ScannerView
+          autoAdd
+          onAccept={async (c) => {
+            accepted.push(c);
+            return true;
+          }}
+        />,
+      ),
+    );
+    await until(() => (look.asked > 0 ? true : null), "the look");
+    await wait(300);
+    expect(accepted).toEqual([]);
+    // A sharp view is read: the look, waiting on it, is weighed and settles its pick.
+    quality.sharp = true;
+    await until(() => (accepted.length ? accepted : null), "the card filed by its look");
+    expect(accepted[0]).toMatchObject({ scryfall_id: "p3" });
+    expect(cam.collectorReads).toBeGreaterThan(0);
+  });
+
+  it("in a card-first row, the look waits for a view that's read, then settles (Codex review of #217)", async () => {
+    localStorage.setItem("yama.scan.cardFirst", "1");
+    saveModel("look", "look-v1-sure");
+    look.scores = { p1: 0.2, p2: 0.3, p3: 0.9 };
+    cam.line = "ILLUS. JOHN AVON";
+    const rows: Provisional[] = [];
+    act(() =>
+      root.render(
+        <ScannerView
+          autoAdd
+          onAccept={async () => true}
+          onUndo={async () => undefined}
+          onProvisional={(row: Provisional) => void rows.push(row)}
+        />,
+      ),
+    );
+    const row = await until(() => rows[0], "the provisional row");
+    await until(() => (look.asked > 0 ? true : null), "the look");
+    await wait(300);
+    expect(row.state.phase).not.toBe("settled");
+    quality.sharp = true;
+    await until(() => (row.state.phase === "settled" ? true : null), "the row settled by its look");
+    expect(row.state).toMatchObject({ how: "look", chosen: { scryfall_id: "p3" } });
   });
 
   it("skips the views too blurred to read, the first included, and settles from the next sharp one", async () => {

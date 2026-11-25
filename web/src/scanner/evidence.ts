@@ -354,6 +354,8 @@ export class Evidence {
   private frames = 0;
   /** Views of the line turned away unread (quality.ts: too blurred or washed out). */
   private unread = 0;
+  /** Waiting for the first frame that reads anything (`whenRead`). */
+  private readWaiters: (() => void)[] = [];
 
   /** Frames that read anything (an empty read adds none). */
   get framesRead(): number {
@@ -373,6 +375,15 @@ export class Evidence {
    */
   get onlyUnread(): boolean {
     return this.frames === 0 && this.unread > 0;
+  }
+
+  /**
+   * Resolves once a frame has read anything (at once if one has): what an automatic pick held back
+   * by `onlyUnread` waits for, to be weighed again (Codex review of #217: held back once, it was
+   * never weighed again, so it was off for the card rather than waiting).
+   */
+  whenRead(): Promise<void> {
+    return this.frames > 0 ? Promise.resolve() : new Promise((resolve) => this.readWaiters.push(resolve));
   }
 
   /**
@@ -399,6 +410,7 @@ export class Evidence {
   add(reads: readonly string[]) {
     if (!reads.some((r) => r.trim())) return;
     this.frames += 1;
+    if (this.frames === 1) for (const resolve of this.readWaiters.splice(0)) resolve();
     for (const t of this.tallies) {
       const s = scoreFrame(t.e, reads);
       t.total += WEIGHTS.number * s.number + WEIGHTS.set * s.set + WEIGHTS.rarity * s.rarity + WEIGHTS.lang * s.lang;
@@ -450,7 +462,8 @@ export class Evidence {
   private withFrame(reads: readonly string[]): Evidence {
     const copy = Object.create(Evidence.prototype) as Evidence;
     // (`beside` and each tally's `e` are never changed, so they're shared.)
-    Object.assign(copy, this, { tallies: this.tallies.map((t) => ({ ...t })), besideNumberFrames: new Map(this.besideNumberFrames) });
+    // (Its own waiters: a tried frame must never wake what waits on this one.)
+    Object.assign(copy, this, { tallies: this.tallies.map((t) => ({ ...t })), besideNumberFrames: new Map(this.besideNumberFrames), readWaiters: [] });
     copy.add(reads);
     return copy;
   }
