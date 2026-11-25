@@ -19,7 +19,7 @@ import { ModelsSetting } from "./ModelsSetting";
 import { scannerSettled, SpeedTest } from "./SpeedTest";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
-import { applyH, rectQuad, squareToQuad } from "./image";
+import { rectQuad } from "./image";
 import { cropTimesNote, deleteDiagnostics, diagnosticsOn, diagnosticsSummary, MAX_NOTE, setDiagnosticsOn, ScanRecord, stepAppeared, TimingRecord, type Appeared, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
 import type { StripQuality } from "./quality";
 import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE, type CropTime } from "./pipeline";
@@ -53,7 +53,7 @@ import { OutlineTracker } from "./outline";
 import { GATE_DEFAULTS, Motion, PlacementGate } from "./gate";
 import { BACK_KEY, GATE_PASS_MS, GATE_SAYS, gateStatus, type GateFrame, type GateRead } from "./gateLoop";
 import { defaultCamera, nameCameras, resolveSaved, saveCamera, savedCamera, type NamedCamera } from "./cameras";
-import { browserCameraSource, draw, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
+import { browserCameraSource, draw, LINE_PART, sourceLabel, type CameraSource, type SourceInfo } from "./cameraSource";
 import { finderKey, FOUND_CARD, FOUND_FAILED, FOUND_NONE, loadNativeArt, loadNativeFinder, nativeCameraAvailable, nativeEmbed, nativeFinderAbility, NATIVE_GONE, openNativeCamera, saveNativeCamera, savedNativeCamera, unloadNativeArt, unloadNativeFinder, type NativeCamera, type NativeFinderAbility, type NativeLens } from "./nativeCamera";
 import { nativeId, nativeWanted, onNativeChange, saveNative, savedNative } from "./nativeModels";
 import { cachedFile } from "./scanCache";
@@ -618,6 +618,8 @@ const qualityNote = (q: StripQuality | null) => (q ? { sharpness: Math.round(q.s
 interface FirstRead {
   reads: string[];
   quality: StripQuality | null;
+  /** Too blurred or washed out to read (quality.ts): none of it was read. */
+  skipped?: boolean;
   /** Each crop's time (pipeline.ts, `CropTime`). */
   times: CropTime[];
 }
@@ -630,9 +632,15 @@ interface FirstRead {
  * weighed once the printings are known, by the same rules (evidence.ts). `stop` ends it at the
  * next crop (the card needs no read after all), and so does `live` turning false (another card, a
  * camera switch). A read that fails leaves what was read before it, never the sheet's printings.
+ *
+ * Since 25 Nov 2026 it isn't read at all when the strip is too blurred (quality.ts, as every other
+ * read: in Bryan's diagnostics, 26 of the 39 first reads didn't read the number, the soft ones
+ * among them taking about a second for nothing), and `judge`, once the printings are known, ends
+ * it at a crop that holds all a frame can add (evidence.ts, `frameDone`).
  */
-function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => boolean): { done: Promise<FirstRead>; stop(): void } {
+function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => boolean): { done: Promise<FirstRead>; stop(): void; judge(enough: (reads: readonly string[]) => boolean): void } {
   let stopped = false;
+  let enough: ((reads: readonly string[]) => boolean) | null = null;
   const out: FirstRead = { reads: [], quality: null, times: [] };
   const done = (async () => {
     try {
@@ -641,7 +649,12 @@ function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => b
       // with one printing (or one in the locked sets) stops this before any of it is read.
       await new Promise((r) => setTimeout(r, 0));
       if (stopped || !live()) return out;
-      for await (const text of readCollectorLines(read.image, read.quad, engine, { gate: (q) => ((out.quality = q), true), timed: (t) => out.times.push(t) })) {
+      const lines = readCollectorLines(read.image, read.quad, engine, {
+        gate: (q) => ((out.quality = q), (out.skipped = !worthReading(q)), !out.skipped),
+        timed: (t) => out.times.push(t),
+        done: (reads) => !!enough?.(reads),
+      });
+      for await (const text of lines) {
         if (stopped || !live()) break;
         out.reads.push(text);
       }
@@ -654,6 +667,9 @@ function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => b
     done,
     stop: () => {
       stopped = true;
+    },
+    judge: (fn) => {
+      enough = fn;
     },
   };
 }
@@ -2639,7 +2655,8 @@ function ScannerScreen({
         // (evidence.ts); it carries on into hold and read.
         const ev = new Evidence(opts.printings, lockedOut);
         noteReads(seq, ev);
-        const { reads, quality, times } = await first.done;
+        first.judge((r) => ev.frameDone(r));
+        const { reads, quality, times, skipped } = await first.done;
         if (foundSeq.current !== seq) return;
         if (!sameCamera()) {
           update({ reading: false });
@@ -2650,7 +2667,7 @@ function ScannerScreen({
         const raw = reads.join("\n");
         // How long the read waited after the card was named, and each crop's time (Scanner diagnostics).
         const timed = noteFirstRead(f.timing, times, startedAt, v.kind === "settled");
-        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v, ...timed });
+        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v, ...(skipped ? { skipped: true } : {}), ...timed });
         if (v.kind === "settled") {
           const hit = opts.printings.find((p) => p.scryfall_id === v.id)!;
           update({ options: [hit, ...choice.options.filter((p) => p !== hit)], readFirst: 1, chosen: hit, how: "collector", sure: true, settledId: hit.scryfall_id, raw, reading: false });
@@ -3740,7 +3757,8 @@ function ScannerScreen({
     const readInto = async (src: CanvasImageSource, w: number, h: number, quad: Quad, f: Found, source: "hold" | "still" = "hold", locateMs?: number): Promise<"settled" | "read" | "blurred"> => {
       // A still is cut from itself; a camera frame, by the camera (at its full resolution).
       const cut0 = performance.now();
-      const read = source === "still" ? around(src, w, h, quad, hiCanvasRef.current!) : await camSrc().around(quad, hiCanvasRef.current!);
+      // From the camera, only the part of the card the line is read from, at full resolution (LINE_PART).
+      const read = source === "still" ? around(src, w, h, quad, hiCanvasRef.current!) : await camSrc().around(quad, hiCanvasRef.current!, undefined, LINE_PART);
       const cutMs = Math.round(performance.now() - cut0);
       if (stop) return "read";
       setLiveShot(read);
@@ -3751,7 +3769,7 @@ function ScannerScreen({
       let quality: StripQuality | null = null;
       const reads: string[] = [];
       const times: CropTime[] = [];
-      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => ((quality = q), (sharp = worthReading(q))), timed: (t) => times.push(t) })) {
+      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => ((quality = q), (sharp = worthReading(q))), timed: (t) => times.push(t), done: (r) => ev.frameDone(r) })) {
         if (stop) return "read";
         reads.push(text);
       }
@@ -3805,7 +3823,6 @@ function ScannerScreen({
         bmp?.close();
       }
     };
-    let focused = false;
     const holdMotion = new Motion();
     /** What every verdict does, from a frame, a skipped frame or a miss alike. */
     const act = (verdict: HeldVerdict, wait: number) => {
@@ -3849,12 +3866,14 @@ function ScannerScreen({
         if (!quad) verdict = otherInView ? held.another(clock()) : held.missed(clock());
         else {
           lastQuad = quad;
-          // Focus on the collector corner, once, where the browser lets it point focus.
-          if (!focused) {
-            focused = true;
-            const [x, y] = applyH(squareToQuad(quad), 0.25, 0.95);
-            cam.focusAt(x / v.videoWidth, y / v.videoHeight);
-          }
+          // Focus is left to the camera's own continuous autofocus (Bryan, 25 Nov 2026: "I'm
+          // guessing it's a focusing issue"). Pointing it at the collector corner, as the scanner
+          // did from 15 Nov 2026, ran a focus scan and held the lens there for 5 s. In Bryan's
+          // Scanner diagnostics of 20 to 25 Nov 2026 [ran], hold frames after it were soft (strip
+          // sharpness under 150) on 20 of 22 where the card had since come 5% nearer or further,
+          // and on 25 of 72 where it hadn't; 5 s and more after it, with autofocus its own again,
+          // on 1 of 33. (A hold's first seconds are also when the card is still settling, so not
+          // all of that is the focus.)
           // With the placement gate, the collector line is read only while the card is at rest
           // (gate.ts, `Motion`): a frame of a moving card counts as skipped, like a blurred one.
           const speed = gateOn() ? holdMotion.speed(performance.now(), quad) : 0;
@@ -4276,15 +4295,16 @@ function ScannerScreen({
       eager ??= readNow();
       const first = eager;
       if (read && first && camGen.current === gen) {
+        first.judge((r) => ev.frameDone(r));
         tasks.push(
           (firstRead = (async () => {
-            const { reads, quality, times } = await first.done;
+            const { reads, quality, times, skipped } = await first.done;
             if (!row.finding) return;
             // A camera switch meanwhile: nothing read from the old camera counts (as on the sheet; Codex review of #195).
             if (camGen.current !== gen) return;
             ev.add(reads);
             const v = ev.verdict();
-            f.rec?.frame({ source: "later", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read.quad)), verdict: v, ...noteFirstRead(f.timing, times, startedAt, v.kind === "settled") });
+            f.rec?.frame({ source: "later", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read.quad)), verdict: v, ...(skipped ? { skipped: true } : {}), ...noteFirstRead(f.timing, times, startedAt, v.kind === "settled") });
             proven();
           })().catch((e: unknown) => console.warn("Couldn't read the collector line for its row", e))),
         );
@@ -4374,11 +4394,11 @@ function ScannerScreen({
           busy = true;
           try {
             hiCanvasRef.current ??= document.createElement("canvas");
-            const view = await camSrc().around(quad, hiCanvasRef.current);
+            const view = await camSrc().around(quad, hiCanvasRef.current, undefined, LINE_PART);
             const reads: string[] = [];
             let quality: StripQuality | null = null;
             let sharp = true;
-            for await (const text of readCollectorLines(view.image, view.quad, await ocrEngine(), { gate: (q) => ((quality = q), (sharp = worthReading(q))) })) reads.push(text);
+            for await (const text of readCollectorLines(view.image, view.quad, await ocrEngine(), { gate: (q) => ((quality = q), (sharp = worthReading(q))), done: (r) => ev.frameDone(r) })) reads.push(text);
             if (ended || !row.finding) return;
             const note = { source: "later" as const, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * camSrc().fullScale()) };
             if (!sharp) {

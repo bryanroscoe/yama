@@ -359,3 +359,37 @@ describe("reads pointing outside the candidates (Codex review of #195)", () => {
     expect(other.pointsOutside()).toBe(true);
   });
 });
+
+// A frame's crops are read in turn; `frameDone` says when the rest would only read the same pixels
+// again (pipeline.ts, `readCollectorLines`' `done`; Bryan, 25 Nov 2026).
+describe("a frame's crops, enough", () => {
+  it("is enough once the crops so far settle it", () => {
+    expect(new Evidence(signets).frameDone(["0145 C\nWOC • EN"])).toBe(true);
+  });
+
+  it("is enough with the leader's number as printed and its set code, though the number alone needs another frame", () => {
+    // Set code and number read: nothing another crop of this frame can add.
+    const e = new Evidence(signets);
+    expect(e.frameDone(["0145 C", "WOC • EN"])).toBe(true);
+    // The number alone: another crop may still read the set code.
+    expect(e.frameDone(["0145 C"])).toBe(false);
+    // Lookalikes only, or nothing read.
+    expect(e.frameDone(["O14S W0C"])).toBe(false);
+    expect(e.frameDone(["", " "])).toBe(false);
+  });
+
+  it("isn't enough while a twin needs another crop to tell them apart", () => {
+    const woe = [p("woe82", "woe", "82"), p("pwoe82p", "pwoe", "82p"), p("woe83", "woe", "83")];
+    expect(new Evidence(woe).frameDone(["0082 U", "WOE • EN"])).toBe(false);
+  });
+
+  it("only tries the frame: the evidence is as it was", () => {
+    const e = new Evidence(signets);
+    e.add(["0145"]);
+    expect(e.frameDone(["0145 C"])).toBe(true);
+    expect(e.framesRead).toBe(1);
+    expect(e.verdict().kind).toBe("unsure");
+    e.add(["0145 C"]);
+    expect(e.verdict()).toMatchObject({ kind: "settled", id: "woc" });
+  });
+});

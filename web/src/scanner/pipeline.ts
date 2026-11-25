@@ -156,13 +156,35 @@ export interface CropTime {
 }
 
 /**
- * Reads of the collector line, one crop at a time, for a caller that stops at the first read that
- * settles the printing: the usual corner at the card's snapped edges, then at the detector's own
- * corners (when snapping moved them), then the corner cut wider, to the card's edge, with no band
- * clean-up (a line at the very edge, or a frame that puts it lower), then the bottom right.
- * `timed` hears each crop's time as its read comes back.
+ * Whether any read has a number the collector line could print: two digits or more in a row, a
+ * year aside (the legal line's "© 2007" is in the wide cut on older frames, whose number is at the
+ * right end of that line).
  */
-export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: OcrEngine, opts: { gate?: (q: StripQuality) => boolean; timed?: (t: CropTime) => void } = {}): AsyncGenerator<string> {
+export const readsANumber = (reads: readonly string[]): boolean => reads.some((r) => (r.match(/\d{2,}/g) ?? []).some((d) => !/^(?:19|20)\d\d$/.test(d)));
+
+/**
+ * Reads of the collector line, one crop at a time: the corner cut wide, to the card's edge, with
+ * no band clean-up; then the usual corner at the card's snapped edges; then at the detector's own
+ * corners (when snapping moved them); then the bottom right, only when the left read no number.
+ * `timed` hears each crop's time as its read comes back.
+ *
+ * `done`, asked after each crop with every read so far, ends the frame early: the caller's
+ * evidence says these reads settle the printing, or hold all a frame of this card can add
+ * (evidence.ts, `frameDone`), so the rest would only read the same pixels again.
+ *
+ * The order and the conditional bottom right are from Bryan's frames (25 Nov 2026, "we still
+ * struggle to quickly find a high-quality version of the card number"): in his Scanner diagnostics
+ * of 22 to 25 Nov 2026, the read that held the number the card was filed under was the wide cut's
+ * on 103 of 142 frames, the usual corner's at the snapped edges on 70 of 142 and at the detector's corners
+ * on 63 of 107, and the bottom right's on 1 of 142 [ran]; each crop is a reader's pass of about
+ * 175 ms on his Pixel (ML Kit), read one after another.
+ */
+export async function* readCollectorLines(
+  frame: RgbaImage,
+  quad: Quad,
+  ocr: OcrEngine,
+  opts: { gate?: (q: StripQuality) => boolean; timed?: (t: CropTime) => void; done?: (reads: readonly string[]) => boolean } = {},
+): AsyncGenerator<string> {
   const gray = toGray(frame);
   const refined = refineQuad(gray, quad);
   const q = refined ?? quad;
@@ -176,10 +198,15 @@ export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: Ocr
     opts.timed?.({ sentAt, ms: now() - t0, ...(r.ms != null ? { engineMs: r.ms } : {}) });
     return r.text;
   };
-  yield await read(q, COLLECTOR_REGION, 12);
-  if (refined) yield await read(quad, COLLECTOR_REGION, 12);
-  yield await read(q, WIDE_COLLECTOR_REGION, 16);
-  yield await read(q, RIGHT_COLLECTOR_REGION, 16);
+  const left: [Quad, CardRegion, number][] = [[q, WIDE_COLLECTOR_REGION, 16], [q, COLLECTOR_REGION, 12], ...(refined ? [[quad, COLLECTOR_REGION, 12] as [Quad, CardRegion, number]] : [])];
+  const reads: string[] = [];
+  for (const [at, region, pad] of left) {
+    const text = await read(at, region, pad);
+    reads.push(text);
+    yield text;
+    if (opts.done?.(reads)) return;
+  }
+  if (!readsANumber(reads)) yield await read(q, RIGHT_COLLECTOR_REGION, 16);
 }
 
 /**

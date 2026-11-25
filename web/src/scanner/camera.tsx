@@ -455,12 +455,6 @@ export function useCameraControls() {
     },
     [setFocus],
   );
-  /** Focus on a point of the frame (0 to 1 across and down), where the browser lets it; else nothing. Never while the lens is pinned. */
-  const focusAt = useCallback((x: number, y: number) => {
-    const t = track.current;
-    if (!t || !pointsOfInterestSupported() || focusRef.current.pinned != null) return;
-    void apply(t, { pointsOfInterest: [{ x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) }] }).catch(() => undefined);
-  }, []);
   return {
     attach,
     caps,
@@ -481,7 +475,6 @@ export function useCameraControls() {
     setExposure,
     zoom,
     autoZoom,
-    focusAt,
     /** Run a constraint change of another kind on `t` by itself, in turn with these (serialApplier). */
     exclusive: useCallback(<T,>(t: MediaStreamTrack, work: () => Promise<T>) => applier.current.exclusive(t, work), []),
     /** Where the lens can be pinned on this camera, or null where the browser doesn't offer it. */

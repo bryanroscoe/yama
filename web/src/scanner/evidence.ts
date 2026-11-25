@@ -393,6 +393,34 @@ export class Evidence {
   }
 
   /**
+   * Whether one frame's reads so far, its crops read in turn (pipeline.ts, `readCollectorLines`'
+   * `done`), settle the printing, or hold all a frame of this card can add: the leader's number read
+   * exactly as printed and its set code exactly (or it prints none), with no twin for another crop
+   * to tell apart. The frame's other crops would then read the same pixels again: the time is
+   * better spent on the next frame (Bryan, 25 Nov 2026: "we still struggle to quickly find a
+   * high-quality version of the card number").
+   */
+  frameDone(reads: readonly string[]): boolean {
+    if (!reads.some((r) => r.trim())) return false;
+    const trial = this.withFrame(reads);
+    const v = trial.verdict();
+    if (v.kind === "settled") return true;
+    const lead = v.leader ? trial.tallies.find((t) => t.e.id === v.leader) : undefined;
+    if (!lead) return false;
+    const s = scoreFrame(lead.e, reads);
+    return s.printedNumber && (s.exactSet || !lead.e.printsSet) && trial.twins(lead).length === 0;
+  }
+
+  /** A copy of this evidence with one more frame added, this one left as it was. */
+  private withFrame(reads: readonly string[]): Evidence {
+    const copy = Object.create(Evidence.prototype) as Evidence;
+    // (`beside` and each tally's `e` are never changed, so they're shared.)
+    Object.assign(copy, this, { tallies: this.tallies.map((t) => ({ ...t })), besideNumberFrames: new Map(this.besideNumberFrames) });
+    copy.add(reads);
+    return copy;
+  }
+
+  /**
    * Whether what has been read points outside the candidates altogether: a set code read where
    * it's printed that is none of theirs, or the set code of a printing left out (the set lock's,
    * the border's) read exactly. Then no candidate can be chosen by elimination: a tie by price

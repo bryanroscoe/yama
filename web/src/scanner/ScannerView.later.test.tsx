@@ -92,6 +92,10 @@ vi.mock("./samples", async (original) => ({
     }
   },
 }));
+// These tests are about what the collector line's reads do, not whether a strip is sharp enough
+// to read: the canvas here draws nothing, so every strip would be turned away (quality.ts).
+const quality = vi.hoisted(() => ({ sharp: true }));
+vi.mock("./quality", async (original) => ({ ...(await original<typeof import("./quality")>()), worthReading: () => quality.sharp }));
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
   loadArtRecognizer: async () => {
