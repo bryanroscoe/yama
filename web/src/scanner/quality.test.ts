@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clippedShare, halve, laplacianVariance, worthReading } from "./quality";
+import { clippedShare, halve, laplacianVariance, sharpEnough, SHARP_MIN, SHARP_MIN_FULL, worthReading } from "./quality";
 import type { Gray } from "./types";
 
 const img = (w: number, h: number, f: (x: number, y: number) => number): Gray => {
@@ -28,5 +28,19 @@ describe("strip quality", () => {
     expect(worthReading({ sharpness: 300, clipped: 0.05 })).toBe(true);
     expect(worthReading({ sharpness: 40, clipped: 0 })).toBe(false);
     expect(worthReading({ sharpness: 300, clipped: 0.5 })).toBe(false);
+  });
+
+  it("asks more of a strip cut from a bigger card: 65 at 900 px tall or less, 150 at 1800 px and more, straight between", () => {
+    expect(sharpEnough(undefined)).toBe(SHARP_MIN);
+    expect(sharpEnough(600)).toBe(SHARP_MIN);
+    expect(sharpEnough(900)).toBe(SHARP_MIN);
+    expect(sharpEnough(1350)).toBeCloseTo((SHARP_MIN + SHARP_MIN_FULL) / 2);
+    expect(sharpEnough(1800)).toBe(SHARP_MIN_FULL);
+    expect(sharpEnough(2600)).toBe(SHARP_MIN_FULL);
+    // A strip of a phone's 4K frame that the number never read from (Bryan's frames under 150), and one that did.
+    expect(worthReading({ sharpness: 120, clipped: 0, cardPx: 2250 })).toBe(false);
+    expect(worthReading({ sharpness: 170, clipped: 0, cardPx: 2250 })).toBe(true);
+    // The same sharpness from a webcam's smaller card is still read, as before.
+    expect(worthReading({ sharpness: 120, clipped: 0, cardPx: 900 })).toBe(true);
   });
 });

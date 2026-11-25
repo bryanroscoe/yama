@@ -121,7 +121,12 @@ export function lookLead(options: readonly { scryfall_id: string }[], scores: Lo
 }
 
 /** Why the look didn't settle a printing: not every printing scored, too small a lead, or the collector line read another. */
-export type LookUnsettled = "unscored" | "lead" | "read-other";
+/**
+ * Why the look didn't settle: no scores, too small a lead, the collector line read something
+ * pointing elsewhere, or every view of the line so far was turned away unread as too blurred, so
+ * nothing could have pointed elsewhere (evidence.ts, `onlyUnread`; re-check of #217).
+ */
+export type LookUnsettled = "unscored" | "lead" | "read-other" | "unread";
 
 /**
  * Whether the look settles the printing by itself (the option that settles when sure): every
@@ -133,11 +138,13 @@ export function lookSettles(
   options: readonly { scryfall_id: string }[],
   scores: LookScores | undefined,
   readsOther: (id: string) => boolean,
+  unread = false,
 ): { settled: true; id: string; lead: number } | { settled: false; why: LookUnsettled; lead: number | null } {
   const top = lookLead(options, scores);
   if (!top) return { settled: false, why: "unscored", lead: null };
   if (top.lead < LOOK_SETTLE_LEAD) return { settled: false, why: "lead", lead: top.lead };
   if (readsOther(top.id)) return { settled: false, why: "read-other", lead: top.lead };
+  if (unread) return { settled: false, why: "unread", lead: top.lead };
   return { settled: true, id: top.id, lead: top.lead };
 }
 

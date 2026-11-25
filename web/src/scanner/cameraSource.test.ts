@@ -2,7 +2,7 @@
 // The camera-source seam: the box a read is cut from, the browser's camera as a source, and what
 // a timing record calls the camera.
 import { describe, expect, it } from "vitest";
-import { browserCameraSource, cutBox, sourceLabel } from "./cameraSource";
+import { browserCameraSource, cutBox, LINE_PART, partQuad, sourceLabel } from "./cameraSource";
 import type { Quad } from "./types";
 
 const quad: Quad = [
@@ -68,6 +68,16 @@ describe("the browser's camera as a source", () => {
     expect(cut.image.height).toBe(163);
     expect(cut.quad[0]![0]).toBeCloseTo((100 - 77) * k);
     expect(cut.quad[2]![1]).toBeCloseTo((480 - 177) * k);
+  });
+  it("cuts only the part of the card asked for, with the whole card's quad moved into the cut", async () => {
+    // The card 200 × 280: its bottom 60% is y 312 to 480, the box that and 8% of the card's longer side (280).
+    expect(partQuad(quad, LINE_PART)).toEqual([[100, 312], [300, 312], [300, 480], [100, 480]]);
+    const { canvas: c, drawn } = canvas();
+    const cut = await browserCameraSource(() => video(1920, 1080)).around(quad, c, 2400, LINE_PART);
+    expect(drawn).toEqual([[77, 289, 246, 214, 0, 0, 246, 214]]);
+    // The card's top corners are above the cut; its bottom ones in it, one pixel for one.
+    expect(cut.quad[0]).toEqual([23, -89]);
+    expect(cut.quad[2]).toEqual([223, 191]);
   });
   it("draws a box of the frame at the size asked for", async () => {
     const { canvas: c, drawn } = canvas();

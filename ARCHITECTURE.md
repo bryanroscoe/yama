@@ -3662,3 +3662,30 @@ downloads it or if it's withdrawn, rather than ManaVault's.
 - The evidence and what wasn't kept (snapping the outline to image edges made it worse) are in
   [docs/scanner.md](docs/scanner.md#cards-on-a-pile-and-their-borders-2026-11-24-later). Not yet checked on
   a phone with real piles.
+
+## The collector line from sharp frames, full resolution only where it's read (25 November 2026)
+
+Bryan, 25 Nov 2026: "we still struggle to quickly find a high-quality version of the card number... I'm
+guessing it's a focusing issue", and "could we speed things up by starting at a lower resolution and only
+upping the resolution as we need to for things like the card number... make this more dynamic and as fast
+as possible".
+
+Decided: the scanner points the camera's focus nowhere and leaves it to the camera's continuous autofocus;
+a camera's collector strip under a sharpness bar that depends on the card's size in pixels (150 for a
+phone's 4K frame) isn't read, the first read included (a photo always is); a frame's crops start with the
+wide cut and stop once the evidence says they settle the printing on its number and set code (a frame
+they don't settle is read whole, the bottom right included, as before); and only the card's bottom 60% is
+cut from the full frame for the line. The camera's stream stays 4K.
+
+- Why: in his Scanner diagnostics of 22 to 25 Nov, no strip under 150 read the number (0 of 30), each
+  still costing a frame's crops (about 0.7 s); frames after the scanner's focus point (a focus scan, then
+  the lens held 5 s) were soft on 20 of 22 where the card had moved and 25 of 72 where it hadn't, against
+  1 of 33 once autofocus was its own again; the wide cut held the number on 103 of 142 frames, the bottom
+  right on 1.
+- Lower resolution: naming a card already runs on the camera's 640 px frame (median 0.53 s); only the
+  collector line, the title and the close-ups touch the full frame, and now only the part they read. A
+  lower stream would halve the line's pixels, and changing it while a card is held restarts focus. A
+  1080p stream with a full-resolution still of the corner when the line is needed is the next step if his
+  records still show the line slow; it needs an APK and a phone.
+- Web only: no APK, server or model change. Evidence and tables in
+  [docs/scanner.md](docs/scanner.md#the-number-sharp-and-sooner-2026-11-25). Not yet checked on a phone.

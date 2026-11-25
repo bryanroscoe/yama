@@ -184,23 +184,6 @@ describe("the focus pin", () => {
     expect(slider()!.value).toBe("0");
   });
 
-  it("leaves a tap to focus alone while pinned", async () => {
-    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getSupportedConstraints: () => ({ pointsOfInterest: true }) } });
-    const c = camera();
-    act(() => cam.attach(c.t));
-    act(() => cam.setFocus(0.3));
-    await settle();
-    const before = c.applied.length;
-    act(() => cam.focusAt(0.5, 0.5));
-    await settle();
-    expect(c.applied.length).toBe(before);
-    act(() => cam.setFocus(null));
-    await settle();
-    act(() => cam.focusAt(0.5, 0.5));
-    await settle();
-    expect(c.last()).toEqual({ focusMode: "continuous", pointsOfInterest: [{ x: 0.5, y: 0.5 }] });
-  });
-
   it("says so when the camera won't hold a focus, and stays on autofocus", async () => {
     const c = camera();
     let fail = false;

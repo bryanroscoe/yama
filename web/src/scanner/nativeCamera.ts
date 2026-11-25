@@ -22,7 +22,7 @@
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { cameraInfo, type ExposureSetter } from "./camera";
-import { CUT_SIDE, cutBox, draw, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
+import { CUT_SIDE, cutBox, draw, partQuad, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
 import { RECOGNIZER_SHORT_SIDE } from "./artClient";
 import { canFit, DEFAULT_ASPECT, fitPicture } from "./fit";
 import type { Quad, RgbaImage } from "./types";
@@ -919,9 +919,9 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     ready,
     frame: () => (hasFrame && !closed ? el : null),
     fullScale: () => (full && hasFrame && el.width > 0 ? full.w / el.width : 1),
-    async around(quad, _canvas, maxSide = CUT_SIDE) {
+    async around(quad, _canvas, maxSide = CUT_SIDE, part) {
       const t = need();
-      const b = cutBox(quad, el.width, el.height, Number.POSITIVE_INFINITY);
+      const b = cutBox(part ? partQuad(quad, part) : quad, el.width, el.height, Number.POSITIVE_INFINITY, quad);
       const f = await t.request({ op: "region", x: b.x / el.width, y: b.y / el.height, w: b.w / el.width, h: b.h / el.height, maxSide });
       // Pixels of the cut per frame pixel: the cut is from the full frame, so usually more than 1.
       const kx = f.width / b.w;

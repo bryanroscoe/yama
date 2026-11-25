@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { fittingDistance, NameIndex } from "./fuzzy";
 import { applyH, cropToTextBand, prepareText, rectQuad, squareToQuad, warpRegion } from "./image";
+import { cutBox, LINE_PART, partQuad } from "./cameraSource";
 import { refineQuad } from "./locate";
 import { parseCollector, setVariants } from "./parse";
 import { decide } from "./pipeline";
@@ -166,6 +167,19 @@ describe("geometry", () => {
     for (let i = 0; i < 4; i += 1) {
       expect(Math.hypot(q![i]![0] - truth[i]![0], q![i]![1] - truth[i]![1])).toBeLessThan(3);
     }
+  });
+
+  it("snaps the bottom corners from only the part of the card the collector line is cut from (LINE_PART)", () => {
+    const { g, truth, guide } = scene((3 * Math.PI) / 180);
+    const b = cutBox(partQuad(guide, LINE_PART), g.width, g.height, Number.POSITIVE_INFINITY, guide);
+    const band: Gray = { width: b.w, height: b.h, data: new Uint8ClampedArray(b.w * b.h) };
+    for (let y = 0; y < b.h; y += 1) band.data.set(g.data.subarray((y + b.y) * g.width + b.x, (y + b.y) * g.width + b.x + b.w), y * b.w);
+    // The card's top is outside the cut.
+    expect(b.y).toBeGreaterThan(Math.max(truth[0][1], truth[1][1]));
+    const moved = (q: Quad) => q.map(([x, y]) => [x - b.x, y - b.y]) as Quad;
+    const q = refineQuad(band, moved(guide));
+    expect(q).not.toBeNull();
+    for (const i of [2, 3]) expect(Math.hypot(q![i]![0] - moved(truth)[i]![0], q![i]![1] - moved(truth)[i]![1])).toBeLessThan(3);
   });
 
   it("finds the text band in a title crop", () => {

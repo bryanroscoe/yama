@@ -9,7 +9,7 @@ import { cropToTextBand, prepareText, toGray, warpRegion, type CardRegion } from
 import { refineQuad } from "./locate";
 import { normaliseName, parseCollector } from "./parse";
 import { pickPrinting } from "./pick";
-import { stripQuality, type StripQuality } from "./quality";
+import { RIGHT_STRIP, stripQuality, type StripQuality } from "./quality";
 import type { CatalogPrinting, Gray, OcrEngine, OcrResult, Quad, RgbaImage, ScanCandidate, ScanCatalog, ScanResult } from "./types";
 
 /** Bottom-left collector block (two lines) on 2015+ frames, with room for a misaligned card. */
@@ -156,18 +156,40 @@ export interface CropTime {
 }
 
 /**
- * Reads of the collector line, one crop at a time, for a caller that stops at the first read that
- * settles the printing: the usual corner at the card's snapped edges, then at the detector's own
- * corners (when snapping moved them), then the corner cut wider, to the card's edge, with no band
- * clean-up (a line at the very edge, or a frame that puts it lower), then the bottom right.
- * `timed` hears each crop's time as its read comes back.
+ * Reads of the collector line, one crop at a time: the corner cut wide, to the card's edge, with
+ * no band clean-up; then the usual corner at the card's snapped edges; then at the detector's own
+ * corners (when snapping moved them); then the bottom right. `timed` hears each crop's time as its
+ * read comes back.
+ *
+ * `done`, asked after each crop of the left with every read so far, ends the frame there: the
+ * caller's evidence says the reads settle the printing on its number and set code (evidence.ts,
+ * `frameDone`), so the rest, the bottom right included, would only read the same pixels again.
+ * Otherwise every crop is read, as before.
+ *
+ * `gate` judges the left corner's strip (quality.ts); a frame it turns away has its left unread,
+ * and the bottom right is read only if its own strip passes `gate` too, so a left corner in glare
+ * doesn't keep a readable right from being read.
+ *
+ * The order is from Bryan's frames (25 Nov 2026, "we still struggle to quickly find a
+ * high-quality version of the card number"): in his Scanner diagnostics of 22 to 25 Nov 2026, the
+ * read that held the number the card was filed under was the wide cut's on 103 of 142 frames, the
+ * usual corner's at the snapped edges on 70 of 142 and at the detector's corners on 63 of 107, and
+ * the bottom right's on 1 of 142 [ran]; each crop is a reader's pass of about 175 ms on his Pixel
+ * (ML Kit), read one after another.
  */
-export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: OcrEngine, opts: { gate?: (q: StripQuality) => boolean; timed?: (t: CropTime) => void } = {}): AsyncGenerator<string> {
+export async function* readCollectorLines(
+  frame: RgbaImage,
+  quad: Quad,
+  ocr: OcrEngine,
+  opts: {
+    gate?: (q: StripQuality) => boolean;
+    timed?: (t: CropTime) => void;
+    done?: (reads: readonly string[]) => boolean;
+  } = {},
+): AsyncGenerator<string> {
   const gray = toGray(frame);
   const refined = refineQuad(gray, quad);
   const q = refined ?? quad;
-  // A blurred or glare-clipped strip isn't worth the reader's time (quality.ts).
-  if (opts.gate && !opts.gate(stripQuality(gray, q))) return;
   const read = async (at: Quad, region: CardRegion, pad: number) => {
     const img = prepareText(warpRegion(gray, at, region, Math.round(((region.x1 - region.x0) * COLLECTOR_DENSITY * 63) / 88), Math.round((region.y1 - region.y0) * COLLECTOR_DENSITY)), pad);
     const sentAt = Date.now();
@@ -176,9 +198,19 @@ export async function* readCollectorLines(frame: RgbaImage, quad: Quad, ocr: Ocr
     opts.timed?.({ sentAt, ms: now() - t0, ...(r.ms != null ? { engineMs: r.ms } : {}) });
     return r.text;
   };
-  yield await read(q, COLLECTOR_REGION, 12);
-  if (refined) yield await read(quad, COLLECTOR_REGION, 12);
-  yield await read(q, WIDE_COLLECTOR_REGION, 16);
+  // A blurred or glare-clipped strip isn't worth the reader's time (quality.ts).
+  const leftOk = !opts.gate || opts.gate(stripQuality(gray, q));
+  const reads: string[] = [];
+  if (leftOk) {
+    const left: [Quad, CardRegion, number][] = [[q, WIDE_COLLECTOR_REGION, 16], [q, COLLECTOR_REGION, 12], ...(refined ? [[quad, COLLECTOR_REGION, 12] as [Quad, CardRegion, number]] : [])];
+    for (const [at, region, pad] of left) {
+      const text = await read(at, region, pad);
+      reads.push(text);
+      yield text;
+      if (opts.done?.(reads)) return;
+    }
+  }
+  if (!leftOk && !opts.gate!(stripQuality(gray, q, RIGHT_STRIP))) return;
   yield await read(q, RIGHT_COLLECTOR_REGION, 16);
 }
 

@@ -45,8 +45,9 @@ const fake = vi.hoisted(() => ({
   sameArt: true,
   printingsGate: null as Promise<void> | null,
   printingsAnswered: false,
-  /** What the art recognizer sees in the photo. */
+  /** What the art recognizer sees in the photo, and whether it finds a card's outline in it at all. */
   matches: [] as ArtMatch[],
+  outline: true,
   /** The collector line read from every crop, a title read, and a gate holding collector reads back. */
   line: "",
   title: "",
@@ -80,6 +81,10 @@ vi.mock("../api", async (original) => ({
   },
 }));
 
+// These tests are about what the collector line's reads do, not whether a strip is sharp enough
+// to read: the canvas here draws nothing, so every strip would be turned away (quality.ts).
+const quality = vi.hoisted(() => ({ sharp: true }));
+vi.mock("./quality", async (original) => ({ ...(await original<typeof import("./quality")>()), worthReading: () => quality.sharp }));
 vi.mock("./artClient", async (original) => ({
   ...(await original<typeof import("./artClient")>()),
   loadArtRecognizer: async () => {
@@ -94,7 +99,7 @@ vi.mock("./artClient", async (original) => ({
       },
       useLook: async (o) => void (fake.looked = o?.id ?? "off"),
       lookAt: async () => ({ model: "look-1", frames: 1, queryMs: 1, scored: 0, cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0, ms: 1 }) satisfies LookDone,
-      identify: async () => ({ quad: [[100, 100], [400, 100], [400, 520], [100, 520]], upright: 1, matches: fake.matches, timings: { detectMs: 1, embedMs: 1, totalMs: 2 } }),
+      identify: async () => ({ quad: fake.outline ? [[100, 100], [400, 100], [400, 520], [100, 520]] : null, upright: 1, matches: fake.matches, timings: { detectMs: 1, embedMs: 1, totalMs: 2 } }),
       locate: () => new Promise(() => undefined),
       matchAt: () => new Promise(() => undefined),
       reset: () => undefined,
@@ -162,10 +167,11 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(fake, { printings: twins, sameArt: true, printingsGate: null, printingsAnswered: false, matches: [], line: "", title: "", ocrGate: null, looked: "off" });
+  Object.assign(fake, { printings: twins, sameArt: true, printingsGate: null, printingsAnswered: false, matches: [], outline: true, line: "", title: "", ocrGate: null, looked: "off" });
   fake.collectorReads.length = 0;
   fake.timings.length = 0;
   fake.records.length = 0;
+  quality.sharp = true;
   skew = 0;
   const realNow = Date.now.bind(Date);
   vi.spyOn(Date, "now").mockImplementation(() => realNow() + skew);
@@ -241,6 +247,17 @@ describe("the collector line's first read", () => {
     expect(detail.first_ocr_ms.length).toBe(fake.collectorReads.length);
     expect(detail.first_engine_ms).toEqual(detail.first_ocr_ms.map(() => 12));
     expect(detail.first_wait_ms).toBeLessThanOrEqual(detail.first_ms);
+  });
+
+  it("reads a photo's collector line however soft it is: no other frame of it will come (review of #217)", async () => {
+    quality.sharp = false;
+    fake.matches = [match("Stridehangar Automaton", "ill-soft", 0.93)];
+    fake.line = "R 0019\nDRC • EN AARON J. RILEY";
+    const accepted = scanner();
+    await scanPhoto();
+    await until(() => (accepted.length ? accepted : null), "the card filed by itself");
+    expect(accepted[0]).toMatchObject({ scryfall_id: "p19" });
+    expect(fake.collectorReads.length).toBeGreaterThan(0);
   });
 
   it("reads nothing for a card with one printing: its printings are weighed first", async () => {
@@ -351,6 +368,29 @@ describe("the collector line's first read", () => {
     act(() => row.saved(true));
     const t = await until(() => fake.timings.find((x) => x.printing === "collector"), "the timing record");
     expect(t.detail).toMatchObject({ rows: "card-first", first_settled: true, first_wait_ms: expect.any(Number), first_ocr_ms: expect.any(Array) });
+  });
+
+  it("reads a soft photo the art can't name, read as text, in a card-first row too (Codex review of #217)", async () => {
+    localStorage.setItem("yama.scan.cardFirst", "1");
+    quality.sharp = false;
+    // The art finds no card in it: the whole photo is read as text, and the title names the card.
+    // Its collector line reads only once the card has its row, so only the row's own first read of
+    // the photo can settle the printing.
+    fake.matches = [];
+    fake.outline = false;
+    fake.title = "Stridehangar Automaton";
+    fake.sameArt = false;
+    fake.line = "";
+    const rows: Provisional[] = [];
+    rows.push = (...added: Provisional[]) => {
+      fake.line = "R 0019\nDRC • EN AARON J. RILEY";
+      return Array.prototype.push.apply(rows, added);
+    };
+    scanner(rows);
+    await scanPhoto();
+    const row = await until(() => rows[0], "the provisional row");
+    await until(() => (row.state.phase === "settled" ? true : null), "the row to settle");
+    expect(row.state).toMatchObject({ how: "collector", chosen: { scryfall_id: "p19" } });
   });
 
   it("keeps a slow-printing record for a card-first row settled slowly too (Codex review of #200)", async () => {

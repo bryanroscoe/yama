@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NameIndex } from "./fuzzy";
 import { decide } from "./pipeline";
-import { Evidence, expectedOf, hasTwin, looksLikeNumber, progressLine, proofOf, SETTLE, tokenMatch, tokens, unpadded, withoutTotals } from "./evidence";
+import { Evidence, expectedOf, hasTwin, looksLikeNumber, progressLine, proofOf, SETTLE, tokenMatch, tokens, unpadded, withoutSplitYears, withoutTotals } from "./evidence";
 
 const p = (id: string, set: string, number: string, over: { rarity?: string; lang?: string; released_at?: string } = {}) => ({
   scryfall_id: id,
@@ -357,5 +357,132 @@ describe("reads pointing outside the candidates (Codex review of #195)", () => {
     const other = new Evidence([p("woc", "woc", "145"), p("cmm", "cmm", "390")]);
     other.add(["0236 R\nZNR • EN"]);
     expect(other.pointsOutside()).toBe(true);
+  });
+});
+
+// A frame's crops are read in turn; `frameDone` says when the rest would only read the same pixels
+// again (pipeline.ts, `readCollectorLines`' `done`; Bryan, 25 Nov 2026).
+describe("a frame's crops, enough", () => {
+  it("is enough once the reads settle it on the number as printed and the set code", () => {
+    const e = new Evidence(signets);
+    expect(e.frameDone(["0145 C\nWOC • EN"])).toBe(true);
+    expect(e.frameDone(["0145 C", "WOC • EN"])).toBe(true);
+    // The number alone: another crop may still read the set code.
+    expect(e.frameDone(["0145 C"])).toBe(false);
+    // Lookalikes only, or nothing read.
+    expect(e.frameDone(["O14S W0C"])).toBe(false);
+    expect(e.frameDone(["", " "])).toBe(false);
+  });
+
+  it("isn't enough while the reads leave it unsure, number and set code read or not (re-check of #217)", () => {
+    // Two printings of one set, numbers one apart: the read names one, but not yet by the margin.
+    const near = [p("a", "woc", "145"), p("b", "woc", "146")];
+    const trial = new Evidence(near);
+    trial.add(["0145 WOC"]);
+    expect(trial.verdict().kind).toBe("unsure");
+    expect(new Evidence(near).frameDone(["0145 WOC"])).toBe(false);
+    // Two frames read CMM's set code; the wide cut then misreads WOC #145: unsure, so the frame reads
+    // on, and its tighter crop's CMM #390 settles it.
+    const e = new Evidence(signets);
+    e.add(["CMM • EN"]);
+    e.add(["CMM • EN"]);
+    expect(e.frameDone(["0145 C\nWOC • EN"])).toBe(false);
+    e.add(["0145 C\nWOC • EN", "0390 C\nCMM • EN"]);
+    expect(e.verdict()).toMatchObject({ kind: "settled", id: "cmm" });
+  });
+
+  it("isn't enough for a number-alone settle: a later crop of the frame could read a set code against it (review of #217)", () => {
+    const e = new Evidence(signets);
+    e.add(["0145"]);
+    // The wide cut's "0145 C" would settle WOC #145 on its number alone (a second exact frame) ...
+    const settles = new Evidence(signets);
+    settles.add(["0145"]);
+    settles.add(["0145 C"]);
+    expect(settles.verdict()).toMatchObject({ kind: "settled", id: "woc", alone: true });
+    // ... so the frame reads on, and a later crop's CMM leaves it unsettled.
+    expect(e.frameDone(["0145 C"])).toBe(false);
+    const whole = new Evidence(signets);
+    whole.add(["0145"]);
+    whole.add(["0145 C", "CMM • EN"]);
+    expect(whole.verdict().kind).toBe("unsure");
+  });
+
+  it("isn't enough while a twin needs another crop to tell them apart", () => {
+    const woe = [p("woe82", "woe", "82"), p("pwoe82p", "pwoe", "82p"), p("woe83", "woe", "83")];
+    expect(new Evidence(woe).frameDone(["0082 U", "WOE • EN"])).toBe(false);
+  });
+
+  it("isn't enough for a printing from before 2015: it prints no set code, and older frames print the number at the right (re-check of #217)", () => {
+    // Reaper of the Wilds: Duel Decks #63 (2014, its number at the right) beside Theros #201.
+    const reaper = [p("ths", "ths", "201", { released_at: "2013-09-27" }), p("ddm", "ddm", "63", { released_at: "2014-02-21" })];
+    // Its legal line's year split across two lines by OCR: "201" reads as Theros's number.
+    const whole = ["ILLUS. KEV WALKER", "TM 201\n4 WIZARDS OF THE COAST", "TM & © 2014 WIZARDS OF THE COAST 63/80"];
+    const e = new Evidence(reaper);
+    e.add(whole);
+    expect(e.frameDone(whole.slice(0, 2))).toBe(false);
+    // Read whole, frame after frame, its right crop's 63 holds Theros back, as before.
+    e.add(whole);
+    expect(e.verdict().kind).toBe("unsure");
+  });
+
+  it("knows when every view of the line was turned away unread", () => {
+    const e = new Evidence(signets);
+    expect(e.onlyUnread).toBe(false);
+    e.markUnread();
+    expect(e.onlyUnread).toBe(true);
+    // An empty read adds nothing: still only unread.
+    e.add([""]);
+    expect(e.onlyUnread).toBe(true);
+    e.add(["0145 C"]);
+    expect(e.onlyUnread).toBe(false);
+  });
+
+  it("wakes what waits for a read on the first frame that reads anything, never on a frame only tried (Codex review of #217)", async () => {
+    const e = new Evidence(signets);
+    e.markUnread();
+    let woke = false;
+    void e.whenRead().then(() => (woke = true));
+    e.frameDone(["0145 C\nWOC • EN"]);
+    e.add([""]);
+    await Promise.resolve();
+    expect(woke).toBe(false);
+    e.add(["ILLUS. JOHN AVON"]);
+    await Promise.resolve();
+    expect(woke).toBe(true);
+    // Once read, at once.
+    await expect(e.whenRead()).resolves.toBeUndefined();
+  });
+
+  it("only tries the frame: the evidence is as it was", () => {
+    const e = new Evidence(signets);
+    e.add(["0145"]);
+    expect(e.frameDone(["0145 C\nWOC • EN"])).toBe(true);
+    expect(e.framesRead).toBe(1);
+    expect(e.verdict().kind).toBe("unsure");
+    e.add(["0145 C"]);
+    expect(e.verdict()).toMatchObject({ kind: "settled", id: "woc" });
+  });
+});
+
+// The legal line's year split by OCR is no collector number (re-check of #217: "© 201 2" was read
+// as a reprint's #201 on an older card whose own number, 59/274, is at the right).
+describe("a year split by OCR", () => {
+  it("is taken out of the legal line only; a number split the same way elsewhere, or with its total, stays", () => {
+    expect(withoutSplitYears("TM 201 2 WIZARDS OF THE COAST")).not.toMatch(/201/);
+    expect(withoutSplitYears("TM 20 12 WIZARDS")).not.toMatch(/20|12/);
+    expect(tokens("TM 201 2 WIZARDS OF THE COAST")).not.toContain("201");
+    expect(tokens("02 86 MOM • EN")).toContain("0286");
+    expect(tokens("C 0145\nWOC • EN")).toContain("0145");
+    // Not on another line: a Secret Lair number split by OCR stays as read.
+    expect(withoutSplitYears("19 92\nSLD • EN")).toBe("19 92\nSLD • EN");
+    // A number with its total on the legal line (2003 to 2014 frames) stays whole (re-check of #217).
+    expect(tokens("TM & © 2012 WIZARDS OF THE COAST 201/249 4")).toContain("201");
+  });
+
+  it("doesn't settle a reprint's #201 from an older card's legal line", () => {
+    const pair = [p("reprint", "2x2", "201", { released_at: "2022-07-08" }), p("old", "m13", "59", { released_at: "2012-07-13" })];
+    expect(verdict(pair, Array(3).fill(["ILLUS. CHRIS RAHN", "TM 201 2 WIZARDS OF THE COAST"])).kind).toBe("unsure");
+    // Its own number, read at the right, settles it.
+    expect(verdict(pair, Array(2).fill(["ILLUS. CHRIS RAHN", "TM 201 2 WIZARDS OF THE COAST 59/274"]))).toMatchObject({ kind: "settled", id: "old" });
   });
 });

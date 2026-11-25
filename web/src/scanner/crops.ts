@@ -10,6 +10,8 @@ import type { Quad, RgbaImage } from "./types";
 export interface Shot {
   image: RgbaImage;
   quad: Quad;
+  /** A photo, not a camera's frame: no other frame of it will come (its first read isn't skipped for blur). */
+  still?: boolean;
 }
 
 /** The card's bottom edge, corner to corner: both collector areas, with room for a card cut high. */

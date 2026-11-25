@@ -147,6 +147,19 @@ export function withoutTotals(text: string): string {
   return text.replace(/(\d{1,4})\s*\/\s*(\d{1,4})/g, (_, n: string, t: string) => (Number(t) >= 20 && Number(t) >= Number(n) ? n : " "));
 }
 
+/**
+ * A year OCR split with a space ("201 2", "20 12": the legal line's "© 2012") taken out of the legal
+ * line (a line with Wizards, Coast or TM on it), so its parts aren't read as collector numbers
+ * (independent re-check of #217: "201" counted as a reprint's #201 on an older card whose own number
+ * was at the right). Only there: elsewhere "19 92" may be a number split by OCR. Run before totals
+ * come off, so a number with its total on the same line ("201/249") stays whole.
+ */
+export const withoutSplitYears = (text: string): string =>
+  text
+    .split("\n")
+    .map((line) => (/W\s*I\s*Z\s*A\s*R\s*D|C\s*O\s*A\s*S\s*T|\bTM\b/i.test(line) ? line.replace(/\b(\d{1,3}) +(\d{1,3})\b/g, (m, a: string, b: string) => (/^(?:19|20)\d\d$/.test(a + b) ? " " : m)) : line))
+    .join("\n");
+
 /** Language codes a set code can be glued to ("MOMEEN", "MOMENJRYAN": the bullet, or the artist's brush, read as a letter). */
 const GLUED_LANG = new RegExp(
   `^([A-Z0-9]{3,5}?)[EO]?(${Object.keys(LANGS)
@@ -168,7 +181,7 @@ const GLUED_LANG = new RegExp(
  * code is lost that way settles on its number when that's enough (numberAlone).
  */
 export const tokens = (text: string) => {
-  const clean = withoutTotals(text).toUpperCase();
+  const clean = withoutTotals(withoutSplitYears(text)).toUpperCase();
   const read = clean.split(/[^A-Z0-9]+/).filter(Boolean);
   const extra: string[] = [];
   for (const line of clean.split(/\n+/)) {
@@ -339,10 +352,38 @@ export class Evidence {
   /** Printings sharing the art that aren't candidates (left out by the set lock): numberAlone checks against them too. */
   private readonly beside: Expected[];
   private frames = 0;
+  /** Views of the line turned away unread (quality.ts: too blurred or washed out). */
+  private unread = 0;
+  /** Waiting for the first frame that reads anything (`whenRead`). */
+  private readWaiters: (() => void)[] = [];
 
   /** Frames that read anything (an empty read adds none). */
   get framesRead(): number {
     return this.frames;
+  }
+
+  /** A view of the card whose line was turned away before it was read (quality.ts: too blurred or washed out). */
+  markUnread(): void {
+    this.unread += 1;
+  }
+
+  /**
+   * Whether every view of the line so far was turned away unread, and nothing has been read: no
+   * text that could hold an automatic pick (the look's, a tie by price) back. Since 25 Nov 2026 a
+   * soft view isn't read at all; read, it might have read a set code that vetoed such a pick, so
+   * those wait for a sharp view or a tap (re-check of #217).
+   */
+  get onlyUnread(): boolean {
+    return this.frames === 0 && this.unread > 0;
+  }
+
+  /**
+   * Resolves once a frame has read anything (at once if one has): what an automatic pick held back
+   * by `onlyUnread` waits for, to be weighed again (Codex review of #217: held back once, it was
+   * never weighed again, so it was off for the card rather than waiting).
+   */
+  whenRead(): Promise<void> {
+    return this.frames > 0 ? Promise.resolve() : new Promise((resolve) => this.readWaiters.push(resolve));
   }
 
   /**
@@ -369,6 +410,7 @@ export class Evidence {
   add(reads: readonly string[]) {
     if (!reads.some((r) => r.trim())) return;
     this.frames += 1;
+    if (this.frames === 1) for (const resolve of this.readWaiters.splice(0)) resolve();
     for (const t of this.tallies) {
       const s = scoreFrame(t.e, reads);
       t.total += WEIGHTS.number * s.number + WEIGHTS.set * s.set + WEIGHTS.rarity * s.rarity + WEIGHTS.lang * s.lang;
@@ -390,6 +432,40 @@ export class Evidence {
         if (n >= NUMBER_ALONE_FRAMES) this.besideRead = true;
       }
     }
+  }
+
+  /**
+   * Whether one frame's reads so far, its crops read in turn (pipeline.ts, `readCollectorLines`'
+   * `done`), settle the printing and hold all a frame of it can add: its number read exactly as
+   * printed and its set code exactly (or it prints none). The frame's other crops would then read
+   * the same pixels again, and the bottom right (where older frames print the number) too: the time
+   * is better spent on the next card (Bryan, 25 Nov 2026: "we still struggle to quickly find a
+   * high-quality version of the card number"). Not on a settle by the number alone (no set code read
+   * on this frame: another crop could read one against it), nor while the reads leave it unsure
+   * (another crop could settle it, or another printing), nor for a printing from before 2015, which
+   * prints no set code and whose number older frames print at the bottom right: a left crop's
+   * digits (its legal line's year, split by OCR) could settle it there (independent review and
+   * re-checks of #217). Those frames are read whole, the bottom right included, as every frame was.
+   */
+  frameDone(reads: readonly string[]): boolean {
+    if (!reads.some((r) => r.trim())) return false;
+    const trial = this.withFrame(reads);
+    const v = trial.verdict();
+    if (v.kind !== "settled") return false;
+    const lead = trial.tallies.find((t) => t.e.id === v.id);
+    if (!lead) return false;
+    const read = scoreFrame(lead.e, reads);
+    return lead.e.printsSet && read.printedNumber && read.exactSet;
+  }
+
+  /** A copy of this evidence with one more frame added, this one left as it was. */
+  private withFrame(reads: readonly string[]): Evidence {
+    const copy = Object.create(Evidence.prototype) as Evidence;
+    // (`beside` and each tally's `e` are never changed, so they're shared.)
+    // (Its own waiters: a tried frame must never wake what waits on this one.)
+    Object.assign(copy, this, { tallies: this.tallies.map((t) => ({ ...t })), besideNumberFrames: new Map(this.besideNumberFrames), readWaiters: [] });
+    copy.add(reads);
+    return copy;
   }
 
   /**
