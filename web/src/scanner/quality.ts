@@ -8,6 +8,12 @@ import type { Gray, Quad } from "./types";
 
 /** The strip measured: the corner the collector line is read from. */
 const STRIP: CardRegion = { x0: 0.03, y0: 0.9, x1: 0.5, y1: 0.99 };
+/**
+ * The same strip at the bottom right, where older frames (2003 to 2014) print the number at the end
+ * of the legal line: measured when the left corner was turned away, so a corner in glare or with
+ * little print on it doesn't keep the right from being read (independent review of #217).
+ */
+export const RIGHT_STRIP: CardRegion = { x0: 0.5, y0: 0.9, x1: 0.97, y1: 0.99 };
 const STRIP_W = 320;
 const STRIP_H = Math.round((STRIP_W * ((STRIP.y1 - STRIP.y0) * 88)) / ((STRIP.x1 - STRIP.x0) * 63));
 
@@ -45,9 +51,9 @@ export const SMALL_CARD_PX = 900;
 export const FULL_CARD_PX = 1800;
 export const CLIP_MAX = 0.2;
 
-export function stripQuality(gray: Gray, quad: Quad): StripQuality {
+export function stripQuality(gray: Gray, quad: Quad, region: CardRegion = STRIP): StripQuality {
   // Cut at twice the size and average 2 × 2, so sensor noise doesn't pass for sharp edges.
-  const g = halve(warpRegion(gray, quad, STRIP, STRIP_W * 2, STRIP_H * 2));
+  const g = halve(warpRegion(gray, quad, region, STRIP_W * 2, STRIP_H * 2));
   return { sharpness: laplacianVariance(g), clipped: clippedShare(g), cardPx: heightOf(quad) };
 }
 

@@ -633,14 +633,16 @@ interface FirstRead {
  * next crop (the card needs no read after all), and so does `live` turning false (another card, a
  * camera switch). A read that fails leaves what was read before it, never the sheet's printings.
  *
- * Since 25 Nov 2026 it isn't read at all when the strip is too blurred (quality.ts, as every other
- * read: in Bryan's diagnostics, 26 of the 39 first reads didn't read the number, the soft ones
- * among them taking about a second for nothing), and `judge`, once the printings are known, ends
- * it at a crop that holds all a frame can add (evidence.ts, `frameDone`).
+ * Since 25 Nov 2026 a camera's view isn't read at all when the strip is too blurred (quality.ts,
+ * as every other read: in Bryan's diagnostics, 26 of the 39 first reads didn't read the number, the
+ * soft ones among them taking about a second for nothing), since the frames after it are read
+ * anyway. A photo (`still`) is read whatever it looks like: there is no other frame of it. And
+ * `judge`, once the printings are known, ends it at a crop that holds all a frame can add, and
+ * leaves the bottom right unread once the number is (evidence.ts, `frameDone`, `numberRead`).
  */
-function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => boolean): { done: Promise<FirstRead>; stop(): void; judge(enough: (reads: readonly string[]) => boolean): void } {
+function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => boolean): { done: Promise<FirstRead>; stop(): void; judge(by: Evidence): void } {
   let stopped = false;
-  let enough: ((reads: readonly string[]) => boolean) | null = null;
+  let ev: Evidence | null = null;
   const out: FirstRead = { reads: [], quality: null, times: [] };
   const done = (async () => {
     try {
@@ -650,9 +652,11 @@ function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => b
       await new Promise((r) => setTimeout(r, 0));
       if (stopped || !live()) return out;
       const lines = readCollectorLines(read.image, read.quad, engine, {
-        gate: (q) => ((out.quality = q), (out.skipped = !worthReading(q)), !out.skipped),
+        gate: (q) => ((out.quality = q), (out.skipped = !read.still && !worthReading(q)), !out.skipped),
         timed: (t) => out.times.push(t),
-        done: (reads) => !!enough?.(reads),
+        done: (reads) => !!ev?.frameDone(reads),
+        // (Before the printings are known, the bottom right is read, as it always was.)
+        right: (reads) => !ev?.numberRead(reads),
       });
       for await (const text of lines) {
         if (stopped || !live()) break;
@@ -668,8 +672,8 @@ function startFirstRead(read: Shot, ocr: () => Promise<OcrEngine>, live: () => b
     stop: () => {
       stopped = true;
     },
-    judge: (fn) => {
-      enough = fn;
+    judge: (by) => {
+      ev = by;
     },
   };
 }
@@ -2655,7 +2659,7 @@ function ScannerScreen({
         // (evidence.ts); it carries on into hold and read.
         const ev = new Evidence(opts.printings, lockedOut);
         noteReads(seq, ev);
-        first.judge((r) => ev.frameDone(r));
+        first.judge(ev);
         const { reads, quality, times, skipped } = await first.done;
         if (foundSeq.current !== seq) return;
         if (!sameCamera()) {
@@ -3447,7 +3451,8 @@ function ScannerScreen({
         if (usable && r.quad && top && top.score >= LOCK_TWICE) {
           const artUnknown = !!locked && judged?.kind !== "in-set" && poolShare.current < KNOWN_ART;
           const ranked = artUnknown ? [] : [...r.matches, ...(r.pool ?? [])].sort((a, b) => b.score - a.score);
-          const hi = around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+          // (A photo: its collector line is read however it looks, there being no other frame of it.)
+          const hi = { ...around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current), still: true };
           const read = identityOnly && !savingPhotos() ? null : hi;
           // Art that leads every other card (fuse.ts) decides too, on the photo's one frame.
           const unlisted = r.matches[r.matches.length - 1]?.score;
@@ -3486,7 +3491,8 @@ function ScannerScreen({
         // A card whose art isn't known: read its text where the recognizer found it.
         if (usable && r.quad) {
           const reader = await textReader();
-          const hi = around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current);
+          // (A photo: its collector line is read however it looks, there being no other frame of it.)
+          const hi = { ...around(bmp, bmp.width, bmp.height, scaleQuad(r.quad, 1 / k), hiCanvasRef.current), still: true };
           const res = await readAt(hi.image, hi.quad, reader);
           if ((res.candidates[0]?.confidence ?? 0) >= SURE) {
             bmp.close();
@@ -3769,7 +3775,7 @@ function ScannerScreen({
       let quality: StripQuality | null = null;
       const reads: string[] = [];
       const times: CropTime[] = [];
-      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => ((quality = q), (sharp = worthReading(q))), timed: (t) => times.push(t), done: (r) => ev.frameDone(r) })) {
+      for await (const text of readCollectorLines(read.image, read.quad, ocr, { gate: (q) => ((quality = q), (sharp = worthReading(q))), timed: (t) => times.push(t), done: (r) => ev.frameDone(r), right: (r) => !ev.numberRead(r) })) {
         if (stop) return "read";
         reads.push(text);
       }
@@ -4295,7 +4301,7 @@ function ScannerScreen({
       eager ??= readNow();
       const first = eager;
       if (read && first && camGen.current === gen) {
-        first.judge((r) => ev.frameDone(r));
+        first.judge(ev);
         tasks.push(
           (firstRead = (async () => {
             const { reads, quality, times, skipped } = await first.done;
@@ -4398,7 +4404,7 @@ function ScannerScreen({
             const reads: string[] = [];
             let quality: StripQuality | null = null;
             let sharp = true;
-            for await (const text of readCollectorLines(view.image, view.quad, await ocrEngine(), { gate: (q) => ((quality = q), (sharp = worthReading(q))), done: (r) => ev.frameDone(r) })) reads.push(text);
+            for await (const text of readCollectorLines(view.image, view.quad, await ocrEngine(), { gate: (q) => ((quality = q), (sharp = worthReading(q))), done: (r) => ev.frameDone(r), right: (r) => !ev.numberRead(r) })) reads.push(text);
             if (ended || !row.finding) return;
             const note = { source: "later" as const, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * camSrc().fullScale()) };
             if (!sharp) {

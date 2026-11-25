@@ -394,21 +394,38 @@ export class Evidence {
 
   /**
    * Whether one frame's reads so far, its crops read in turn (pipeline.ts, `readCollectorLines`'
-   * `done`), settle the printing, or hold all a frame of this card can add: the leader's number read
-   * exactly as printed and its set code exactly (or it prints none), with no twin for another crop
-   * to tell apart. The frame's other crops would then read the same pixels again: the time is
-   * better spent on the next frame (Bryan, 25 Nov 2026: "we still struggle to quickly find a
-   * high-quality version of the card number").
+   * `done`), hold all a frame of this card can add: the leading printing's number read exactly as
+   * printed and its set code exactly (or it prints none), with no twin for another crop to tell
+   * apart. The frame's other crops would then read the same pixels again: the time is better spent
+   * on the next frame (Bryan, 25 Nov 2026: "we still struggle to quickly find a high-quality version
+   * of the card number"). Not merely because the reads so far would settle it: one settled by its
+   * number alone hasn't read a set code on this frame, and another crop could read one against it
+   * (independent review of #217).
    */
   frameDone(reads: readonly string[]): boolean {
-    if (!reads.some((r) => r.trim())) return false;
+    const n = this.leaderNumber(reads);
+    return !!n && (n.read.exactSet || !n.lead.e.printsSet);
+  }
+
+  /**
+   * Whether one frame's reads so far hold the leading printing's number exactly as printed, with no
+   * twin to tell apart: then the bottom right of the card, where older frames print it, has nothing
+   * to add (pipeline.ts, `readCollectorLines`' `right`). Stray digits (a year split by OCR, a set
+   * code's, power and toughness) aren't a number here, as they would be to a count of digits.
+   */
+  numberRead(reads: readonly string[]): boolean {
+    return !!this.leaderNumber(reads);
+  }
+
+  private leaderNumber(reads: readonly string[]): { lead: Tally; read: FieldScores } | null {
+    if (!reads.some((r) => r.trim())) return null;
     const trial = this.withFrame(reads);
     const v = trial.verdict();
-    if (v.kind === "settled") return true;
-    const lead = v.leader ? trial.tallies.find((t) => t.e.id === v.leader) : undefined;
-    if (!lead) return false;
-    const s = scoreFrame(lead.e, reads);
-    return s.printedNumber && (s.exactSet || !lead.e.printsSet) && trial.twins(lead).length === 0;
+    const id = v.kind === "settled" ? v.id : v.leader;
+    const lead = id ? trial.tallies.find((t) => t.e.id === id) : undefined;
+    if (!lead) return null;
+    const read = scoreFrame(lead.e, reads);
+    return read.printedNumber && trial.twins(lead).length === 0 ? { lead, read } : null;
   }
 
   /** A copy of this evidence with one more frame added, this one left as it was. */

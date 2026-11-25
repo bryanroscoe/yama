@@ -248,16 +248,15 @@ describe("the collector line's first read", () => {
     expect(detail.first_wait_ms).toBeLessThanOrEqual(detail.first_ms);
   });
 
-  it("doesn't read a view too blurred to read: its time goes to the next frame (Bryan, 25 Nov 2026)", async () => {
+  it("reads a photo's collector line however soft it is: no other frame of it will come (review of #217)", async () => {
     quality.sharp = false;
     fake.matches = [match("Stridehangar Automaton", "ill-soft", 0.93)];
     fake.line = "R 0019\nDRC • EN AARON J. RILEY";
     const accepted = scanner();
     await scanPhoto();
-    await until(() => (fake.printingsAnswered ? true : null), "the printings");
-    await wait(150);
-    expect(fake.collectorReads).toEqual([]);
-    expect(accepted).toEqual([]);
+    await until(() => (accepted.length ? accepted : null), "the card filed by itself");
+    expect(accepted[0]).toMatchObject({ scryfall_id: "p19" });
+    expect(fake.collectorReads.length).toBeGreaterThan(0);
   });
 
   it("reads nothing for a card with one printing: its printings are weighed first", async () => {

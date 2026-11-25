@@ -361,15 +361,12 @@ describe("reads pointing outside the candidates (Codex review of #195)", () => {
 });
 
 // A frame's crops are read in turn; `frameDone` says when the rest would only read the same pixels
-// again (pipeline.ts, `readCollectorLines`' `done`; Bryan, 25 Nov 2026).
+// again, and `numberRead` when the bottom right has nothing to add (pipeline.ts,
+// `readCollectorLines`' `done` and `right`; Bryan, 25 Nov 2026).
 describe("a frame's crops, enough", () => {
-  it("is enough once the crops so far settle it", () => {
-    expect(new Evidence(signets).frameDone(["0145 C\nWOC • EN"])).toBe(true);
-  });
-
-  it("is enough with the leader's number as printed and its set code, though the number alone needs another frame", () => {
-    // Set code and number read: nothing another crop of this frame can add.
+  it("is enough with the leader's number as printed and its set code", () => {
     const e = new Evidence(signets);
+    expect(e.frameDone(["0145 C\nWOC • EN"])).toBe(true);
     expect(e.frameDone(["0145 C", "WOC • EN"])).toBe(true);
     // The number alone: another crop may still read the set code.
     expect(e.frameDone(["0145 C"])).toBe(false);
@@ -378,15 +375,54 @@ describe("a frame's crops, enough", () => {
     expect(e.frameDone(["", " "])).toBe(false);
   });
 
+  it("is enough with the number and set code even while the printing isn't settled yet", () => {
+    // Two printings of one set, numbers one apart: the read names one, but not yet by the margin.
+    const near = [p("a", "woc", "145"), p("b", "woc", "146")];
+    const e = new Evidence(near);
+    const reads = ["0145 WOC"];
+    const trial = new Evidence(near);
+    trial.add(reads);
+    expect(trial.verdict().kind).toBe("unsure");
+    expect(e.frameDone(reads)).toBe(true);
+  });
+
+  it("isn't enough for a number-alone settle: a later crop of the frame could read a set code against it (review of #217)", () => {
+    const e = new Evidence(signets);
+    e.add(["0145"]);
+    // The wide cut's "0145 C" would settle WOC #145 on its number alone (a second exact frame) ...
+    const settles = new Evidence(signets);
+    settles.add(["0145"]);
+    settles.add(["0145 C"]);
+    expect(settles.verdict()).toMatchObject({ kind: "settled", id: "woc", alone: true });
+    // ... so the frame reads on, and the tighter crop's CMM leaves it unsettled.
+    expect(e.frameDone(["0145 C"])).toBe(false);
+    const whole = new Evidence(signets);
+    whole.add(["0145"]);
+    whole.add(["0145 C", "CMM • EN"]);
+    expect(whole.verdict().kind).toBe("unsure");
+  });
+
   it("isn't enough while a twin needs another crop to tell them apart", () => {
     const woe = [p("woe82", "woe", "82"), p("pwoe82p", "pwoe", "82p"), p("woe83", "woe", "83")];
     expect(new Evidence(woe).frameDone(["0082 U", "WOE • EN"])).toBe(false);
+    expect(new Evidence(woe).numberRead(["0082 U", "WOE • EN"])).toBe(false);
+  });
+
+  it("says the number was read only for the leader's number as printed, not stray digits", () => {
+    const e = new Evidence(signets);
+    expect(e.numberRead(["0145 C"])).toBe(true);
+    // An older frame's legal line split by OCR, a set code's digits, power and toughness: not a number.
+    expect(e.numberRead(["TM & © 201 2 WIZARDS"])).toBe(false);
+    expect(e.numberRead(["M19 • EN"])).toBe(false);
+    expect(e.numberRead(["13/13"])).toBe(false);
+    expect(e.numberRead([])).toBe(false);
   });
 
   it("only tries the frame: the evidence is as it was", () => {
     const e = new Evidence(signets);
     e.add(["0145"]);
-    expect(e.frameDone(["0145 C"])).toBe(true);
+    expect(e.frameDone(["0145 C\nWOC • EN"])).toBe(true);
+    expect(e.numberRead(["0145 C"])).toBe(true);
     expect(e.framesRead).toBe(1);
     expect(e.verdict().kind).toBe("unsure");
     e.add(["0145 C"]);

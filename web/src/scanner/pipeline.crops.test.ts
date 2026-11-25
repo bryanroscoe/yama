@@ -2,7 +2,8 @@
 // (pipeline.ts, `readCollectorLines`; Bryan, 25 Nov 2026: "we still struggle to quickly find a
 // high-quality version of the card number").
 import { describe, expect, it } from "vitest";
-import { readCollectorLines, readsANumber } from "./pipeline";
+import { readCollectorLines } from "./pipeline";
+import type { StripQuality } from "./quality";
 import type { Gray, OcrEngine, Quad, RgbaImage } from "./types";
 
 const image = (w: number, h: number): RgbaImage => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4).fill(200) });
@@ -22,9 +23,9 @@ function reader(texts: string[]): { ocr: OcrEngine; widths: number[] } {
   };
 }
 
-async function readAll(ocr: OcrEngine, done?: (reads: readonly string[]) => boolean): Promise<string[]> {
+async function readAll(ocr: OcrEngine, opts: Parameters<typeof readCollectorLines>[3] = {}): Promise<string[]> {
   const reads: string[] = [];
-  for await (const text of readCollectorLines(image(730, 980), quad, ocr, done ? { done } : {})) reads.push(text);
+  for await (const text of readCollectorLines(image(730, 980), quad, ocr, opts)) reads.push(text);
   return reads;
 }
 
@@ -37,28 +38,37 @@ describe("the collector line's crops", () => {
     expect(r.widths[0]!).toBeGreaterThan(r.widths[1]!);
   });
 
-  it("reads the bottom right only when the left read no number", async () => {
-    const numbered = reader(["U 0218\nHOB • EN CORY GODBEY", "U 0218"]);
-    expect(await readAll(numbered.ocr)).toHaveLength(2);
-    const none = reader(["ILLUS. CORY GODBEY", "ILLUS. CORY GODBEY", "TM & © 2007 WIZARDS 123/383"]);
-    expect(await readAll(none.ocr)).toEqual(["ILLUS. CORY GODBEY", "ILLUS. CORY GODBEY", "TM & © 2007 WIZARDS 123/383"]);
+  it("reads the bottom right unless the caller says the left read the number", async () => {
+    // No judge (no evidence yet): read, as it always was.
+    const r = reader(["U 0218", "U 0218", "x"]);
+    expect(await readAll(r.ocr)).toHaveLength(3);
+    // The left read the number: not read.
+    const told = reader(["U 0218", "U 0218", "x"]);
+    expect(await readAll(told.ocr, { right: (so) => !so.some((t) => t.includes("0218")) })).toEqual(["U 0218", "U 0218"]);
+    // An older frame, its number at the right end of the legal line: read.
+    const old = reader(["ILLUS. CORY GODBEY", "© 201 2", "TM & © 2012 WIZARDS 59/274"]);
+    expect(await readAll(old.ocr, { right: () => true })).toEqual(["ILLUS. CORY GODBEY", "© 201 2", "TM & © 2012 WIZARDS 59/274"]);
   });
 
   it("stops a frame at the crop the caller says is enough", async () => {
     const r = reader(["U 0218\nHOB • EN", "U 0218", "x"]);
     const asked: string[][] = [];
-    const reads = await readAll(r.ocr, (so) => (asked.push([...so]), so.some((t) => t.includes("HOB"))));
+    const reads = await readAll(r.ocr, { done: (so) => (asked.push([...so]), so.some((t) => t.includes("HOB"))) });
     expect(reads).toEqual(["U 0218\nHOB • EN"]);
     expect(asked).toEqual([["U 0218\nHOB • EN"]]);
   });
-});
 
-describe("readsANumber", () => {
-  it("takes two digits or more, but not a year", () => {
-    expect(readsANumber(["U 0218"])).toBe(true);
-    expect(readsANumber(["C 21/281"])).toBe(true);
-    expect(readsANumber(["ILLUS. CORY GODBEY"])).toBe(false);
-    expect(readsANumber(["TM & © 2007 WIZARDS"])).toBe(false);
-    expect(readsANumber(["1"])).toBe(false);
+  it("judges the bottom right by its own strip when the left corner's is turned away (review of #217)", async () => {
+    // The left corner in glare, the right clear: only the right is read.
+    let call = 0;
+    const r = reader(["TM & © 2012 WIZARDS 59/274"]);
+    const gated: StripQuality[] = [];
+    const reads = await readAll(r.ocr, { gate: (q) => (gated.push(q), ++call > 1) });
+    expect(reads).toEqual(["TM & © 2012 WIZARDS 59/274"]);
+    expect(gated).toHaveLength(2);
+    // Both turned away (a blurred card): nothing is read.
+    const blurred = reader(["x"]);
+    expect(await readAll(blurred.ocr, { gate: () => false })).toEqual([]);
+    expect(blurred.widths).toEqual([]);
   });
 });

@@ -3671,10 +3671,11 @@ upping the resolution as we need to for things like the card number... make this
 as possible".
 
 Decided: the scanner points the camera's focus nowhere and leaves it to the camera's continuous autofocus;
-a collector strip under a sharpness bar that depends on the card's size in pixels (150 for a phone's 4K
-frame) isn't read, the first read included; a frame's crops start with the wide cut and stop once the
-evidence says they hold all that frame can add, the bottom right only when the left read no number; and
-only the card's bottom 60% is cut from the full frame for the line. The camera's stream stays 4K.
+a camera's collector strip under a sharpness bar that depends on the card's size in pixels (150 for a
+phone's 4K frame) isn't read, the first read included (a photo always is); a frame's crops start with the
+wide cut and stop once the evidence says they hold the card's number and set code, the bottom right
+unless the evidence says the left read the card's number; and only the card's bottom 60% is cut from the
+full frame for the line. The camera's stream stays 4K.
 
 - Why: in his Scanner diagnostics of 22 to 25 Nov, no strip under 150 read the number (0 of 30), each
   still costing a frame's crops (about 0.7 s); frames after the scanner's focus point (a focus scan, then
