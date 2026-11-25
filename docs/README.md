@@ -40,6 +40,7 @@ Four kinds of page live in this folder, and it helps to know which you are readi
 | Page | What it covers |
 |---|---|
 | [scanner.md](scanner.md) | How the camera scanner recognises a card and picks its printing. |
+| [scanner-models.md](scanner-models.md) | The scanner's own models in one place: what each is, what it was trained on, and where its file, training code and data are. |
 | [mythic-bridge.md](mythic-bridge.md) | Notes on Mythic Tools' API for the import bridge. |
 | [shopping-design.md](shopping-design.md) | Design of store shopping: stock checks, rules and trips. |
 | [local-shopping-workflow.md](local-shopping-workflow.md) | Buying a deck configuration's cards from local stores, step by step. |
