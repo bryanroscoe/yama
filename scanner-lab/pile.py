@@ -1,7 +1,8 @@
 """Simulated phone captures of a card tossed onto a pile of others (Bryan, 24 Nov 2026: "identify cards and
 stacks of cards as you're tossing them on top of each other, as well as identify their borders better").
-The card on top is whole; the ones under it peek out around it at other offsets and turns, sleeved alike
-or not, now and then face down, each casting a soft shadow on what's beneath. The camera looks down on
+Nothing covers the card on top (though, up to 0.72 of the frame's height and turned, it may run off the frame's
+edge); the ones under it peek out around it at other offsets and turns, sleeved alike or not, now and then
+face down, each casting a soft shadow on what's beneath. The camera looks down on
 the pile from a small tilt, with sim.py's light and optics (sim.capture), and the frame is the
 recognizer's (640 x 1138, upright). Labels: the top card's corners as printed (TL, TR, BR, BL).
 
@@ -90,7 +91,9 @@ def render_pile(top_rgb, under_rgbs, rng, level=1.0, frame=FRAME):
     m = int(0.12 * Wk)  # room past the frame, so the camera's tilt never shows an edge
     final_h = rng.uniform(0.3, 0.72) * Hf
     work_h = int(final_h * 2)
-    deck = rng.random() < 0.6  # the pile sleeved alike (when the top card is sleeved)
+    # The pile sleeved alike (when the top card is sleeved). A grey sleeve (sim.py's `None` colour) draws its shade
+    # afresh for each card, so those piles are alike in kind only: kept so, as the shipped finder was trained on it.
+    deck = rng.random() < 0.6
     top, top_a, u = sim.card_unit(top_rgb, rng, L, work_h, 0.75)
     sh, sw = top.shape[:2]
 

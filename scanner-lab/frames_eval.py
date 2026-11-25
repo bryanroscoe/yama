@@ -1,6 +1,7 @@
 """Card finders on cards with strong lines inside their frame (fetch_frames.py; the held-out half, md5 % 2 == 0),
 alone on a table and on 2 others (pile.py), 2 frames each: the outline's error against the card whichever way
 round, and how often its outline isn't card-shaped (cardShape.ts's "junk"), by layout.
+Cards the general training set also has (data/cards outside its md5 % 25 hold-out) are left out.
 python <lab>/frames_eval.py FRAMES_DIR DET.onnx [DET2.onnx ...]   (from the work directory; PROCS (6))"""
 import sys, os, json, glob, hashlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -43,7 +44,11 @@ def work(cid):
 if __name__ == "__main__":
     frames, dets = sys.argv[1], sys.argv[2:]
     meta = json.load(open(frames.rstrip("/") + ".json"))
-    ids = [i for i in meta if held(i)]
+    # Held out here, and not among the general training cards either (data/cards, md5 % 25 != 0): some
+    # adventures, Sagas and Classes are in both sets, and every finder trained on those.
+    trained = {os.path.basename(f)[:-4] for f in glob.glob("data/cards/*.jpg") if int(hashlib.md5(os.path.basename(f)[:-4].encode()).hexdigest(), 16) % 25}
+    ids = [i for i in meta if held(i) and i not in trained]
+    print(f"{len(ids)} held-out cards ({sum(held(i) and i in trained for i in meta)} left out: in the general training cards)", flush=True)
     with Pool(int(os.environ.get("PROCS", 6)), initializer=init, initargs=(dets, frames)) as p:
         rows = [x for c in p.imap(work, ids) for x in c]
     for kind in sorted({r["kind"] for r in rows}) + ["all"]:

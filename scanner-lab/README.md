@@ -227,10 +227,12 @@ those layouts, alone and on piles; its `ep3.pt` shipped (docs/scanner.md has the
 
 - `pile.py` draws the scene at sim.py's working scale: a table, mat, paper or playmat; 0 to 8 cards under the
   top one (`UNDER`), each offset from it by up to 55% of its size and turned (mostly within 10°, sometimes 40°
-  or a quarter turn), sleeved like the top card 60% of the time, face down 8% of the time, each casting a soft
+  or a quarter turn), sleeved like the top card 60% of the time (a grey sleeve's shade drawn afresh for each
+  card), face down 8% of the time, each casting a soft
   shadow; then the top card (sim.py's `card_unit`: sleeve, foil, glare) and a small camera tilt, and sim.py's
   light and optics (`capture`), to the recognizer's 640 × 1138 frame. Every card underneath overlaps the top
-  one, so the top card is the only whole card in the scene and the label is never ambiguous. The cards under
+  one, so the top card is the only card nothing covers and the label is never ambiguous (it may still run off the
+  frame's edge: it is up to 0.72 of the frame's height, turned). The cards under
   it are drawn at half resolution: they're mostly covered, and it keeps a render near a second.
 - sim.py's `render` is split into `card_unit` and `capture` with its random draws in the same order: it draws
   exactly what it did, byte for byte (checked on 36 renders), so the earlier training sets and evaluations
