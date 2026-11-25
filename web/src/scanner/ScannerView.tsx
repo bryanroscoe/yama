@@ -998,6 +998,8 @@ function ScannerScreen({
   const readsOther = (seq: number, id: string) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.pointsAway(id));
   /** Whether it has read something that points outside this card's candidates altogether (evidence.ts `pointsOutside`). */
   const readsOutside = (seq: number) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.pointsOutside());
+  /** Whether every view of this card's line so far was turned away unread as too blurred (evidence.ts, `onlyUnread`): no automatic pick by look or price yet. */
+  const unreadOnly = (seq: number) => cardReads.current?.seq === seq && cardReads.current.evs.some((ev) => ev.onlyUnread) && !cardReads.current.evs.some((ev) => ev.framesRead > 0);
   /** What the hold-and-read loop has read so far, for the sheet ("Read the set code (WOC), not the number yet"). */
   const [readProgress, setReadProgress] = useState<string | null>(null);
   /** Bumped to start a new, full attempt at reading the held card's printing (Keep reading, Wrong printing). */
@@ -2470,7 +2472,7 @@ function ScannerScreen({
     if (!f || phase !== "found" || f.chosen || f.reading || f.misread || f.correcting || f.outside || !f.options || f.options.length < 2 || wrongOpen || paused) return;
     lookWeighed.current = look.seq;
     const seq = look.seq;
-    const got = lookSettles(f.options, look.scores, (id) => readsOther(seq, id));
+    const got = lookSettles(f.options, look.scores, (id) => readsOther(seq, id), unreadOnly(seq));
     const lead = got.lead == null ? null : Math.round(got.lead * 1000) / 1000;
     const optionOf = (id: string | undefined) => (id ? modelsInfo?.look.options.find((o) => o.id === id) : undefined);
     const now = optionOf(lookNow);
@@ -2524,7 +2526,7 @@ function ScannerScreen({
     // A read naming a printing outside the list (the set lock's or the border's): it may be that one.
     // (In the finish it would be filed in: a foil by its sheen is weighed at foil prices.)
     const tf = tieFinishOf(f, pool, finish, foilBySheen);
-    const tie = tf == null || readsOutside(seq) ? null : priceTie(pool, tf);
+    const tie = tf == null || readsOutside(seq) || unreadOnly(seq) ? null : priceTie(pool, tf);
     f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high } : { tied: false, pool: pool.length });
     if (!tie || tf == null) return;
     setFound((cur) => (cur && cur === f ? { ...cur, chosen: tie.printing, how: "price", sure: true, settledId: tie.printing.scryfall_id, picking: false, tieFinish: tf } : cur));
@@ -2543,7 +2545,7 @@ function ScannerScreen({
     const pool = f.options.filter((p) => !readsOther(seq, p.scryfall_id));
     const tf = tieFinishOf(f, pool, finish, foilBySheen);
     if (f.tieFinish === tf) return;
-    const tie = tf == null || readsOutside(seq) ? null : priceTie(pool, tf);
+    const tie = tf == null || readsOutside(seq) || unreadOnly(seq) ? null : priceTie(pool, tf);
     f.rec?.note("priceTie", tie ? { id: tie.printing.scryfall_id, low: tie.low, high: tie.high, refinish: tf } : { tied: false, refinish: tf });
     setFound((cur) =>
       cur !== f
@@ -2659,6 +2661,7 @@ function ScannerScreen({
         noteReads(seq, ev);
         first.judge(ev);
         const { reads, quality, times, skipped } = await first.done;
+        if (skipped) ev.markUnread();
         if (foundSeq.current !== seq) return;
         if (!sameCamera()) {
           update({ reading: false });
@@ -3781,6 +3784,7 @@ function ScannerScreen({
       // Where the time went (Scanner diagnostics): finding the card, cutting it from the full frame, each crop's read.
       const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * (source === "still" ? 1 : camSrc().fullScale())), zoom: camRef.current.zoom, ...(locateMs != null ? { locateMs: Math.round(locateMs) } : {}), cutMs, ...cropTimesNote(times) };
       if (!sharp) {
+        ev.markUnread();
         f.rec?.frame({ ...note, reads: [], skipped: true });
         return "blurred";
       }
@@ -4305,6 +4309,7 @@ function ScannerScreen({
           (firstRead = (async () => {
             const { reads, quality, times, skipped } = await first.done;
             if (!row.finding) return;
+            if (skipped) ev.markUnread();
             // A camera switch meanwhile: nothing read from the old camera counts (as on the sheet; Codex review of #195).
             if (camGen.current !== gen) return;
             ev.add(reads);
@@ -4330,7 +4335,7 @@ function ScannerScreen({
             // and never on frames from a camera switched away from since (Codex review of #195).
             await firstRead;
             if (!row.finding || camGen.current !== gen) return;
-            const got = lookSettles(pool, scores, (id) => ev.pointsAway(id));
+            const got = lookSettles(pool, scores, (id) => ev.pointsAway(id), ev.onlyUnread);
             const option = slotsRef.current.look.option;
             const acts = !!option?.settles && option.id === model;
             if (f.timing) {
@@ -4354,7 +4359,7 @@ function ScannerScreen({
       if (!row.finding || !alive.current) return;
       // Tie by price, last (opt-in): only printings sharing its art, never for a typed name, never
       // against what was read, and in the finish it was scanned to be filed in.
-      if (tieRef.current && !typed && opts.sameArt && !ev.pointsOutside()) {
+      if (tieRef.current && !typed && opts.sameArt && !ev.pointsOutside() && !ev.onlyUnread) {
         const weighed = pool.filter((p) => !ev.pointsAway(p.scryfall_id));
         // (In the finish it's filed in, with Foil by its sheen as it was when it was scanned.)
         const tf = tieFinishOf(f, weighed, wanted, bySheen);
@@ -4407,6 +4412,7 @@ function ScannerScreen({
             if (ended || !row.finding) return;
             const note = { source: "later" as const, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * camSrc().fullScale()) };
             if (!sharp) {
+              ev.markUnread();
               f.rec?.frame({ ...note, reads: [], skipped: true });
               return;
             }

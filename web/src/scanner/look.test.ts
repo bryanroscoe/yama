@@ -233,6 +233,10 @@ describe("settling by look (the option that settles when sure)", () => {
     expect(lookSettles([p("a")], { a: 0.95 }, nothingRead)).toMatchObject({ settled: false, why: "unscored" });
     expect(lookLead(options, { a: 0.95, b: 0.2, c: 0.1 })).toEqual({ id: "a", lead: expect.closeTo(0.75, 9) });
   });
+  it("doesn't settle while every view of the collector line was turned away unread as too blurred (re-check of #217)", () => {
+    expect(lookSettles(options, { a: 0.95, b: 0.3, c: 0.1 }, nothingRead, true)).toEqual({ settled: false, why: "unread", lead: expect.closeTo(0.65, 9) });
+    expect(lookSettles(options, { a: 0.95, b: 0.3, c: 0.1 }, nothingRead, false)).toMatchObject({ settled: true, id: "a" });
+  });
   it("never settles against a collector-line read pointing to another printing, and asks only about its own pick", () => {
     const asked: string[] = [];
     const readOther = (id: string) => (asked.push(id), id !== "c");

@@ -8,12 +8,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Printing } from "../api";
 import type { ArtRecognizer, BundleInfo } from "./artClient";
+import { saveModel } from "./models";
 import type { Quad, ScanCandidate } from "./types";
 
 const V = "gallery-20261106T183001884398Z";
 const printing = (id: string, set: string, number: string): Printing => ({
   scryfall_id: id, oracle_id: "o", name: "Arcane Signet", set_code: set, set_name: `Set ${set.toUpperCase()}`, collector_number: number, lang: "en",
-  rarity: "common", finishes: ["nonfoil"], released_at: "2024-01-01", image_normal: null, image_small: null, back_image_normal: null, artist: null,
+  rarity: "common", finishes: ["nonfoil"], released_at: "2024-01-01", image_normal: `https://cards.scryfall.io/normal/front/${id}.jpg`, image_small: null, back_image_normal: null, artist: null,
   price_date: "2026-11-20", usd: 1, usd_foil: null, usd_etched: null, eur: null, eur_foil: null,
 });
 const bundle = (): BundleInfo => ({
@@ -25,7 +26,13 @@ const bundle = (): BundleInfo => ({
   constants: { scene: 640 },
   models: {
     art: { default: "bundle", options: [{ id: "bundle", label: "ManaVault's art model", note: "", file: `/scan-bundle/${V}/embed.onnx`, bytes: 1 }] },
-    look: { default: "off", options: [{ id: "off", label: "Off", note: "" }] },
+    look: {
+      default: "off",
+      options: [
+        { id: "off", label: "Off", note: "" },
+        { id: "look-v1-sure", label: "Yama's look model v1, settles when sure", note: "", file: `/scan-bundle/${V}/look-1.onnx`, bytes: 9, settles: true },
+      ],
+    },
     text: { default: "auto", options: [{ id: "auto", label: "Automatic", note: "" }] },
     lock: { default: "lead", options: [{ id: "lead", label: "Art that leads", note: "" }] },
   },
@@ -33,6 +40,8 @@ const bundle = (): BundleInfo => ({
 
 /** What lies in view: the card found first, another card, or nothing. */
 const cam = vi.hoisted(() => ({ card: "signet" as "signet" | "weak" | "lookalike" | "titled" | "other" | "none", printings: 3, ill: 0, title: "", line: "C 0145\nWOC • EN", collectorReads: 0 }));
+/** The printing look: the option loaded, each printing's score, and the looks asked for. */
+const look = vi.hoisted(() => ({ loaded: "off", scores: {} as Record<string, number>, asked: 0 }));
 /** Whether a strip is sharp enough to read (quality.ts): the canvas here draws nothing, so it's said here. */
 const quality = vi.hoisted(() => ({ sharp: false }));
 vi.mock("./quality", async (original) => ({ ...(await original<typeof import("./quality")>()), worthReading: () => quality.sharp }));
@@ -62,9 +71,15 @@ vi.mock("./artClient", async (original) => ({
       useArt: async () => undefined,
       detector: "bundle-detector",
       useDetector: async () => undefined,
-      look: "off",
-      useLook: async () => undefined,
-      lookAt: async () => ({ model: "none", frames: 0, queryMs: 0, scored: 0, cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0, ms: 0 }),
+      get look() {
+        return look.loaded;
+      },
+      useLook: async (o) => void (look.loaded = o?.id ?? "off"),
+      lookAt: async (_index, candidates, onScore) => {
+        look.asked += 1;
+        for (const c of candidates) if (look.scores[c.id] != null) onScore(c.id, look.scores[c.id]!);
+        return { model: "look-1", frames: 1, queryMs: 1, scored: candidates.length, cached: 0, fetchMs: 0, decodeMs: 0, embedMs: 0, ms: 1 };
+      },
       identify: async (_image, onSeen) => {
         const quad = cam.card === "none" ? null : QUAD;
         onSeen?.(quad);
@@ -139,6 +154,7 @@ beforeEach(() => {
   root = createRoot(host);
   Object.assign(cam, { card: "signet", printings: 3, ill: cam.ill + 1, title: "", line: "C 0145\nWOC • EN", collectorReads: 0 });
   quality.sharp = false;
+  Object.assign(look, { loaded: "off", scores: {}, asked: 0 });
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -162,6 +178,33 @@ async function until<T>(get: () => T | null | undefined, what: string, tries = 1
 const chip = () => document.querySelector(".scan-chip")?.textContent ?? "";
 
 describe("the collector line from sharp frames", { timeout: 20_000 }, () => {
+  it("doesn't settle by look while every view of the line was too blurred to read (re-check of #217)", async () => {
+    // The look that settles when sure picks C19 #236 by a wide lead; the collector line says WOC #145.
+    saveModel("look", "look-v1-sure");
+    look.scores = { p1: 0.2, p2: 0.3, p3: 0.9 };
+    const accepted: ScanCandidate[] = [];
+    act(() =>
+      root.render(
+        <ScannerView
+          autoAdd
+          onAccept={async (c) => {
+            accepted.push(c);
+            return true;
+          }}
+        />,
+      ),
+    );
+    // Every view soft: the look runs, but nothing read could have vetoed its pick, so it files nothing.
+    await until(() => (look.asked > 0 ? true : null), "the look");
+    await wait(400);
+    expect(cam.collectorReads).toBe(0);
+    expect(accepted).toEqual([]);
+    // A sharp view's line then files what the card says, not the look's pick.
+    quality.sharp = true;
+    await until(() => (accepted.length ? accepted : null), "the card filed by itself");
+    expect(accepted[0]).toMatchObject({ scryfall_id: "p2" });
+  });
+
   it("skips the views too blurred to read, the first included, and settles from the next sharp one", async () => {
     const accepted: ScanCandidate[] = [];
     act(() =>

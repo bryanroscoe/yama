@@ -412,6 +412,31 @@ describe("a frame's crops, enough", () => {
     expect(new Evidence(woe).frameDone(["0082 U", "WOE • EN"])).toBe(false);
   });
 
+  it("isn't enough for a printing from before 2015: it prints no set code, and older frames print the number at the right (re-check of #217)", () => {
+    // Reaper of the Wilds: Duel Decks #63 (2014, its number at the right) beside Theros #201.
+    const reaper = [p("ths", "ths", "201", { released_at: "2013-09-27" }), p("ddm", "ddm", "63", { released_at: "2014-02-21" })];
+    // Its legal line's year split across two lines by OCR: "201" reads as Theros's number.
+    const whole = ["ILLUS. KEV WALKER", "TM 201\n4 WIZARDS OF THE COAST", "TM & © 2014 WIZARDS OF THE COAST 63/80"];
+    const e = new Evidence(reaper);
+    e.add(whole);
+    expect(e.frameDone(whole.slice(0, 2))).toBe(false);
+    // Read whole, frame after frame, its right crop's 63 holds Theros back, as before.
+    e.add(whole);
+    expect(e.verdict().kind).toBe("unsure");
+  });
+
+  it("knows when every view of the line was turned away unread", () => {
+    const e = new Evidence(signets);
+    expect(e.onlyUnread).toBe(false);
+    e.markUnread();
+    expect(e.onlyUnread).toBe(true);
+    // An empty read adds nothing: still only unread.
+    e.add([""]);
+    expect(e.onlyUnread).toBe(true);
+    e.add(["0145 C"]);
+    expect(e.onlyUnread).toBe(false);
+  });
+
   it("only tries the frame: the evidence is as it was", () => {
     const e = new Evidence(signets);
     e.add(["0145"]);
@@ -426,12 +451,16 @@ describe("a frame's crops, enough", () => {
 // The legal line's year split by OCR is no collector number (re-check of #217: "© 201 2" was read
 // as a reprint's #201 on an older card whose own number, 59/274, is at the right).
 describe("a year split by OCR", () => {
-  it("is taken out, and a zero-padded number split the same way isn't", () => {
+  it("is taken out of the legal line only; a number split the same way elsewhere, or with its total, stays", () => {
     expect(withoutSplitYears("TM 201 2 WIZARDS OF THE COAST")).not.toMatch(/201/);
     expect(withoutSplitYears("TM 20 12 WIZARDS")).not.toMatch(/20|12/);
     expect(tokens("TM 201 2 WIZARDS OF THE COAST")).not.toContain("201");
     expect(tokens("02 86 MOM • EN")).toContain("0286");
     expect(tokens("C 0145\nWOC • EN")).toContain("0145");
+    // Not on another line: a Secret Lair number split by OCR stays as read.
+    expect(withoutSplitYears("19 92\nSLD • EN")).toBe("19 92\nSLD • EN");
+    // A number with its total on the legal line (2003 to 2014 frames) stays whole (re-check of #217).
+    expect(tokens("TM & © 2012 WIZARDS OF THE COAST 201/249 4")).toContain("201");
   });
 
   it("doesn't settle a reprint's #201 from an older card's legal line", () => {
