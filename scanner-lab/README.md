@@ -191,6 +191,62 @@ EMBED=models/yama-art-20261118.onnx .venv/bin/python <lab>/corners_eval.py bundl
   model; torchvision's code is BSD-3-Clause, and the ImageNet starting weights and Scryfall training images
   are the usual grey areas (docs/scanner.md, "Licences").
 
+## The card finder on piles (`yama-corners-20261124.onnx`)
+
+Bryan, 24 Nov 2026: cards tossed onto a pile, one on top of the last, weren't found or outlined well
+(docs/scanner.md, "Cards on a pile, and their borders"). The 20 Nov finder never saw a pile in training: each
+corner is a softmax vote over the window's cells, and the corners of the cards underneath pull the vote off
+the top card. This finder is the 20 Nov one fine-tuned with piles added; same graph, inputs and outputs.
+
+```sh
+for i in 0 1 2 3 4; do                         # the card tossed onto 0 to 8 others (pile.py), 2 windows a render
+  MODE=pile .venv/bin/python <lab>/corners_gen.py data/corners/pile $((200000+i*2000)) 2000 $((700+i)) & done; wait
+MODE=pile SPLIT=val .venv/bin/python <lab>/corners_gen.py data/corners/pile_val 300000 400 799   # held-out cards
+ROOTS=train,train_photo,pile VALS=val,pile_val .venv/bin/python <lab>/corners_train.py p1 6 1e-3 runs/c2/ep5.pt
+# Cards with strong lines inside their frame (Sagas, Classes, Cases, split, adventure and flip cards: 373 Scryfall
+# 'normal' fronts, one per artwork; the half with md5 % 2 == 0 held out), alone, tight and on piles
+python3 <lab>/fetch_frames.py frames_cards                                       # frames_cards/ and frames_cards.json
+export TOP_CARDS='frames_cards/*.jpg' HOLD_MOD=2
+for i in 0 1 2; do .venv/bin/python <lab>/corners_gen.py data/corners/frames $((400000+i*500)) 500 $((900+i)) & done
+for i in 0 1; do MODE=photo .venv/bin/python <lab>/corners_gen.py data/corners/frames_photo $((410000+i*500)) 500 $((910+i)) & done
+for i in 0 1 2; do MODE=pile .venv/bin/python <lab>/corners_gen.py data/corners/frames_pile $((420000+i*500)) 500 $((920+i)) & done; wait
+SPLIT=val CHUNK=150 .venv/bin/python <lab>/corners_gen.py data/corners/frames_val 500000 150 990
+SPLIT=val CHUNK=150 MODE=pile .venv/bin/python <lab>/corners_gen.py data/corners/frames_val 500150 150 991
+unset TOP_CARDS HOLD_MOD
+ROOTS=train,train_photo,pile,frames,frames_photo,frames_pile VALS=val,pile_val,frames_val \
+  .venv/bin/python <lab>/corners_train.py p2 4 5e-4 runs/p1/ep5.pt
+.venv/bin/python <lab>/corners_export.py runs/p2/ep3.pt models/yama-corners-20261124.onnx
+EMBED=models/yama-art-20261118.onnx .venv/bin/python <lab>/pile_eval.py out/piles.json bundle \
+  models/yama-corners-20261120.onnx models/yama-corners-20261124.onnx              # 300 held-out cards, 2 piles each
+.venv/bin/python <lab>/frames_eval.py frames_cards models/yama-corners-20261120.onnx models/yama-corners-20261124.onnx
+```
+
+The first run (`p1`, piles added) fixed piles but made a single Saga, Class or Case worse: the strong vertical
+lines inside their frames pulled a corner in, as another card's edge on a pile would. The second (`p2`) adds
+those layouts, alone and on piles; its `ep3.pt` shipped (docs/scanner.md has the numbers).
+
+- `pile.py` draws the scene at sim.py's working scale: a table, mat, paper or playmat; 0 to 8 cards under the
+  top one (`UNDER`), each offset from it by up to 55% of its size and turned (mostly within 10°, sometimes 40°
+  or a quarter turn), sleeved like the top card 60% of the time (a grey sleeve's shade drawn afresh for each
+  card), face down 8% of the time, each casting a soft
+  shadow; then the top card (sim.py's `card_unit`: sleeve, foil, glare) and a small camera tilt, and sim.py's
+  light and optics (`capture`), to the recognizer's 640 × 1138 frame. Every card underneath overlaps the top
+  one, so the top card is the only card nothing covers and the label is never ambiguous (it may still run off the
+  frame's edge: it is up to 0.72 of the frame's height, turned). The cards under
+  it are drawn at half resolution: they're mostly covered, and it keeps a render near a second.
+- sim.py's `render` is split into `card_unit` and `capture` with its random draws in the same order: it draws
+  exactly what it did, byte for byte (checked on 36 renders), so the earlier training sets and evaluations
+  are unchanged.
+- `corners_gen.py` with `MODE=pile` cuts the same coarse and fine windows (and fingers, and a stray card at the
+  edge) from a pile scene; other modes draw as before.
+- `corners_train.py` takes `VALS` (folders to validate on, each reported) so a run shows the single-card
+  windows and the pile windows side by side.
+- `fetch_frames.py` and `frames_eval.py`: the inner-frame layouts' cards, and the outline's error on the held-out
+  half by layout, alone and on two others.
+- `pile_eval.py` runs identify()'s passes (corners_eval.py's port) on held-out cards on piles: whether a card
+  is found, the outline's error against the top card, its kind as cardShape.ts judges it, and the art read
+  and lead rule at those corners, by how many cards lie underneath.
+
 ## The printing look's parity check
 
 `look_parity.py MODEL OUT.json` runs a printing look model (`yama-look-v0.onnx` or `-v1`,

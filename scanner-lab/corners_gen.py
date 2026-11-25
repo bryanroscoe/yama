@@ -5,17 +5,20 @@ and windows with no card. Labels: the card's four corners as printed (TL, TR, BR
 where covered or outside the window, and whether a card is there.
 python <lab>/corners_gen.py OUT_DIR START COUNT SEED   (cards: data/cards/*.jpg; held-out ones are md5 % 25 == 0)
 Env: SPLIT=val for the held-out cards, MODE=photo for tight photos of the card windowed as the scanner does,
-CHUNK (250) renders per labels file."""
+MODE=pile for the card tossed onto a pile of others (pile.py: the label is the card on top), TOP_CARDS (a glob) for
+the cards in view (or on top) from elsewhere, held out when md5 % HOLD_MOD (25) is 0, CHUNK (250) renders per
+labels file."""
 import sys, os, glob, hashlib, json
 import numpy as np, cv2
 import sim
+import pile
 
 S = 256
 SKIN = [(0.98, 0.80, 0.70), (0.93, 0.72, 0.60), (0.80, 0.58, 0.45), (0.62, 0.42, 0.30), (0.42, 0.28, 0.20), (0.30, 0.20, 0.15)]
 
 
-def held(path):
-    return int(hashlib.md5(os.path.basename(path)[:-4].encode()).hexdigest(), 16) % 25 == 0
+def held(path, mod=25):
+    return int(hashlib.md5(os.path.basename(path)[:-4].encode()).hexdigest(), 16) % mod == 0
 
 
 def warp_window(img, quad, rng, kind):
@@ -141,12 +144,16 @@ def other_card(win, rng, cards):
     return (win * (1 - m) + warped * m * shade).astype(np.uint8)
 
 
-def sample(card_path, rng, cards):
+def sample(card_path, rng, cards, under_pool=None):
     card = cv2.cvtColor(cv2.imread(card_path), cv2.COLOR_BGR2RGB)
     level = rng.uniform(0.2, 2.0)
     photo = os.environ.get("MODE") == "photo"
-    img, _, meta = sim.render(card, rng, level, 0.75, room=(1.03, 1.15) if photo else (1.2, 1.9) if rng.random() < 0.5 else (1.15, 1.4))
-    quad = np.float32(meta["card_quad"])
+    if os.environ.get("MODE") == "pile":
+        under = [cv2.cvtColor(cv2.imread(p), cv2.COLOR_BGR2RGB) for p in pile.draw_under(rng, under_pool or cards)]
+        img, quad, meta = pile.render_pile(card, under, rng, level)
+    else:
+        img, _, meta = sim.render(card, rng, level, 0.75, room=(1.03, 1.15) if photo else (1.2, 1.9) if rng.random() < 0.5 else (1.15, 1.4))
+        quad = np.float32(meta["card_quad"])
     out = []
     views = photo_windows(img, quad, rng) if photo else [(*warp_window(img, quad, rng, kind), kind) for kind in ("coarse", "fine")]
     for win, q, kind in views:
@@ -181,6 +188,8 @@ if __name__ == "__main__":
     chunk = int(os.environ.get("CHUNK", 250))
     cards = sorted(glob.glob("data/cards/*.jpg"))
     pool = [c for c in cards if held(c) == (split == "val")]
+    # The cards on top from elsewhere (TOP_CARDS, a glob), held out by HOLD_MOD; the rest from `pool` as before.
+    tops = [c for c in sorted(glob.glob(os.environ["TOP_CARDS"])) if held(c, int(os.environ.get("HOLD_MOD", 25))) == (split == "val")] if os.environ.get("TOP_CARDS") else pool
     os.makedirs(out_dir, exist_ok=True)
     rng = np.random.default_rng(seed)
     for c0 in range(start, start + count, chunk):
@@ -192,8 +201,8 @@ if __name__ == "__main__":
                 cv2.imwrite(os.path.join(out_dir, name), cv2.cvtColor(win, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])
                 labels.append({"file": name, "present": False, "quad": None, "fingers": 0, "kind": "none"})
                 continue
-            path = pool[rng.integers(len(pool))]
-            windows, meta = sample(path, rng, cards)
+            path = tops[rng.integers(len(tops))]
+            windows, meta = sample(path, rng, cards, pool)
             for j, (win, q, present, n, kind) in enumerate(windows):
                 name = f"{i:06d}{'cf'[j]}.jpg"
                 cv2.imwrite(os.path.join(out_dir, name), cv2.cvtColor(win, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 92])

@@ -11,7 +11,7 @@ import { modelsOf } from "./models";
 const V = "gallery-20261106T183001884398Z";
 const opt = (id: string, file: string | null = `/scan-bundle/${V}/${id}.onnx`): ModelOption => ({ id, label: `Model ${id}`, note: "", file, bytes: 100 });
 const bundleFinder = opt("bundle-detector");
-const yamaFinder = opt("yama-corners-20261120");
+const yamaFinder = opt("yama-corners-20261124");
 const yamaArt = opt("yama-art-20261118");
 const cascade = opt("yama-art-20261118-cascade");
 const bundleArt = opt("bundle");
@@ -70,7 +70,7 @@ function world(
       let shown: SpeedCard | null = null;
       let gone = false;
       let hung: ((e: Error) => void) | null = null;
-      const per = detector.id === "yama-corners-20261120" ? 10 : 50;
+      const per = detector.id === "yama-corners-20261124" ? 10 : 50;
       const rec: ArtRecognizer = {
         embed: `${V}/${art.id}`,
         art: art.id === opts.runsInstead ? "bundle" : art.id,
@@ -181,9 +181,9 @@ describe("which models the speed test times", () => {
     const models = modelsOf(info());
     expect(speedConfigs(models, {}).map((c) => [c.roles, c.detector.id, c.art.id])).toEqual([
       [["yours", "defaults"], "bundle-detector", "yama-art-20261118"],
-      [["faster"], "yama-corners-20261120", "yama-art-20261118-cascade"],
+      [["faster"], "yama-corners-20261124", "yama-art-20261118-cascade"],
     ]);
-    expect(speedConfigs(models, { detector: "yama-corners-20261120", art: "yama-art-20261118-cascade" }).map((c) => c.roles)).toEqual([["yours", "faster"], ["defaults"]]);
+    expect(speedConfigs(models, { detector: "yama-corners-20261124", art: "yama-art-20261118-cascade" }).map((c) => c.roles)).toEqual([["yours", "faster"], ["defaults"]]);
     expect(speedConfigs(models, { art: "bundle" }).map((c) => [c.roles, c.art.id])).toEqual([
       [["yours"], "bundle"],
       [["defaults"], "yama-art-20261118"],
@@ -195,10 +195,10 @@ describe("which models the speed test times", () => {
 
   it("the models before, where the faster ones are now the defaults (22 Nov 2026)", () => {
     const now = info();
-    for (const slot of ["detector", "art"] as const) now.models![slot]!.default = slot === "detector" ? "yama-corners-20261120" : "yama-art-20261118-cascade";
+    for (const slot of ["detector", "art"] as const) now.models![slot]!.default = slot === "detector" ? "yama-corners-20261124" : "yama-art-20261118-cascade";
     const models = modelsOf(now);
     expect(speedConfigs(models, {}).map((c) => [c.roles, c.detector.id, c.art.id])).toEqual([
-      [["yours", "defaults", "faster"], "yama-corners-20261120", "yama-art-20261118-cascade"],
+      [["yours", "defaults", "faster"], "yama-corners-20261124", "yama-art-20261118-cascade"],
       [["before"], "bundle-detector", "yama-art-20261118"],
     ]);
     // A device that chose the pair before runs it: that's its own, and the before.
@@ -238,7 +238,7 @@ describe("a speed test", () => {
       },
     };
     const r = await runSpeedTest(() => undefined, undefined, w.deps);
-    expect(loaded).toEqual(["bundle-detector", "yama-corners-20261120"]);
+    expect(loaded).toEqual(["bundle-detector", "yama-corners-20261124"]);
     // This device's scanner runs it: each configuration in the app comes first, so "yours" is what it runs.
     expect(r.configs.map((c) => [c.roles, c.runtime])).toEqual([
       [["yours", "defaults"], "native-cpu"],
@@ -319,7 +319,7 @@ describe("a speed test", () => {
     w.deps.native = {
       can: async () => ({ can: true, runs: false }),
       load: async (_info, d) => {
-        if (d.id === "yama-corners-20261120") throw new Error("the app's card finder didn't load");
+        if (d.id === "yama-corners-20261124") throw new Error("the app's card finder didn't load");
         return 100;
       },
       find: async () => ({ state: 2, quad: null, vote: 0, ms: 4, passes: 2, ageMs: 0, runs: [2, 2] }),
@@ -353,7 +353,7 @@ describe("a speed test", () => {
     const r = await runSpeedTest((p) => progress.push(p), undefined, w.deps);
     expect(w.loads).toEqual([
       { art: "yama-art-20261118", detector: "bundle-detector" },
-      { art: "yama-art-20261118-cascade", detector: "yama-corners-20261120" },
+      { art: "yama-art-20261118-cascade", detector: "yama-corners-20261124" },
     ]);
     // One worker at a time, each ended after its frames.
     expect(w.disposed).toBe(2);

@@ -3,7 +3,8 @@ printed, covered ones included. torchvision MobileNetV3-Small (BSD-3, ImageNet w
 stride 4; each corner is a softmax-weighted vote of cells (their centre plus an offset), so a covered corner
 or one past the window's edge is still placed. A pooled head says whether a card is there.
 python <lab>/corners_train.py RUN EPOCHS [LR [INIT.pt]]   (from the work directory: data/corners/{train,val}, or
-CORNERS_DATA; ROOTS=train,train_photo trains on several folders; INIT.pt fine-tunes; writes runs/RUN/epN.pt)"""
+CORNERS_DATA; ROOTS=train,train_photo trains on several folders; VALS=val,pile_val validates on each; INIT.pt
+fine-tunes; writes runs/RUN/epN.pt)"""
 import sys, os, json, glob, time, math
 import numpy as np, cv2, torch, torch.nn as nn, torch.nn.functional as F
 from torchvision.models import mobilenet_v3_small, MobileNet_V3_Small_Weights
@@ -94,9 +95,9 @@ def main():
     out = f"runs/{run}"; os.makedirs(out, exist_ok=True)
     dev = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     D = os.environ.get("CORNERS_DATA", "data/corners")
-    tr = Windows(",".join(f"{D}/{x}" for x in os.environ.get("ROOTS", "train").split(",")), True); va = Windows(f"{D}/val", False)
+    tr = Windows(",".join(f"{D}/{x}" for x in os.environ.get("ROOTS", "train").split(",")), True)
+    vals = [(v, Windows(f"{D}/{v}", False)) for v in os.environ.get("VALS", "val").split(",")]
     dl = torch.utils.data.DataLoader(tr, batch_size=96, shuffle=True, num_workers=4, drop_last=True, persistent_workers=True)
-    dv = torch.utils.data.DataLoader(va, batch_size=96, shuffle=False, num_workers=2)
     model = Corners()
     if len(sys.argv) > 4:  # fine-tune from a checkpoint
         model.load_state_dict(torch.load(sys.argv[4], map_location="cpu"))
@@ -107,7 +108,7 @@ def main():
     opt = torch.optim.AdamW([{"params": back, "lr": lr * 0.5}, {"params": rest, "lr": lr}], weight_decay=1e-4)
     total = epochs * len(dl); warm = 300 if len(sys.argv) <= 4 else 50
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1, (s + 1) / warm) * 0.5 * (1 + math.cos(math.pi * min(s, total) / total)))
-    print(f"train {len(tr)} val {len(va)} steps/epoch {len(dl)} on {dev}", flush=True)
+    print(f"train {len(tr)} val {', '.join(f'{v} {len(va)}' for v, va in vals)} steps/epoch {len(dl)} on {dev}", flush=True)
     for ep in range(epochs):
         model.train(); t0 = time.time(); acc = np.zeros(3); k = 0
         for x, q, present, has in dl:
@@ -115,17 +116,20 @@ def main():
             loss, parts, _, _ = losses(model, (x - mean) / std, q, present, has)
             opt.zero_grad(set_to_none=True); loss.backward(); opt.step(); sched.step()
             acc += parts; k += 1
-        model.eval(); errs = []; hits = 0; tot = 0
-        with torch.no_grad():
-            for x, q, present, has in dv:
-                x, q, present, has = x.to(dev), q.to(dev), present.to(dev), has.to(dev)
-                corners, _, plog = model((x - mean) / std)
-                hits += ((plog > 0).float() == present).sum().item(); tot += len(present)
-                side = torch.minimum((q[:, 1] - q[:, 0]).norm(dim=-1), (q[:, 2] - q[:, 1]).norm(dim=-1))
-                e = ((corners - q).norm(dim=-1).mean(-1) / side.clamp(min=1))[present > 0]
-                errs += e.cpu().tolist()
-        errs = np.array(errs)
-        print(f"ep {ep}: train l1 {acc[0]/k:.4f} ce {acc[1]/k:.3f} bce {acc[2]/k:.3f} | val corner error / short side median {np.median(errs):.3%} p90 {np.percentile(errs, 90):.3%} | present acc {hits/tot:.2%} | {time.time()-t0:.0f}s", flush=True)
+        model.eval(); report = []
+        for v, va in vals:
+            errs = []; hits = 0; tot = 0
+            with torch.no_grad():
+                for x, q, present, has in torch.utils.data.DataLoader(va, batch_size=96, shuffle=False, num_workers=2):
+                    x, q, present, has = x.to(dev), q.to(dev), present.to(dev), has.to(dev)
+                    corners, _, plog = model((x - mean) / std)
+                    hits += ((plog > 0).float() == present).sum().item(); tot += len(present)
+                    side = torch.minimum((q[:, 1] - q[:, 0]).norm(dim=-1), (q[:, 2] - q[:, 1]).norm(dim=-1))
+                    e = ((corners - q).norm(dim=-1).mean(-1) / side.clamp(min=1))[present > 0]
+                    errs += e.cpu().tolist()
+            errs = np.array(errs)
+            report.append(f"{v} corner error / short side median {np.median(errs):.3%} p90 {np.percentile(errs, 90):.3%} | present acc {hits/tot:.2%}")
+        print(f"ep {ep}: train l1 {acc[0]/k:.4f} ce {acc[1]/k:.3f} bce {acc[2]/k:.3f} | {' | '.join(report)} | {time.time()-t0:.0f}s", flush=True)
         torch.save(model.state_dict(), f"{out}/ep{ep}.pt")
 
 

@@ -222,8 +222,8 @@ const BUNDLE_DETECTOR: ModelOption = ModelOption {
 /// printed, covered ones included. Same input (`window`) and outputs (`quad`, `up`, `centre`,
 /// `short`) as the bundle's detector, so recognizer.ts runs it unchanged. Offered only with a bundle
 /// whose detector reads a 256 px window and votes over four views (`fits`), as the pinned one does.
-/// The card finder slot's default since 22 Nov 2026 (docs/scanner.md, "The faster models as the
-/// defaults"); until it's downloaded, or if it's withdrawn, the bundle's runs (the slot's base).
+/// The card finder slot's default from 22 to 24 Nov 2026 (docs/scanner.md, "The faster models as the
+/// defaults"); since then an option, and what stands in for CORNERS_PILES (`STANDS_IN`).
 pub(crate) const CORNERS_MODEL: ModelOption = ModelOption {
     slot: Slot::Detector,
     id: "yama-corners-20261120",
@@ -235,6 +235,30 @@ pub(crate) const CORNERS_MODEL: ModelOption = ModelOption {
         url: "https://github.com/bryanroscoe/yama/releases/download/scanner-models-20261120/yama-corners-20261120.onnx",
         bytes: 4_140_304,
         sha256: "18f9d6aab2a4688d8c576eee6e09e9f449cf8ebb38e2ccceabf148ad1b557dd3",
+    },
+    recogniser: None,
+    default: false,
+    base: false,
+    needs: None,
+    settles: false,
+};
+
+/// Yama's card finder fine-tuned on piles (docs/scanner.md, "Cards on a pile, and their borders";
+/// scanner-lab/pile.py): CORNERS_MODEL's weights trained on with a card tossed onto others added, so the
+/// corners of the cards underneath no longer pull its corners off the top card. The same graph, input
+/// and outputs, so it runs wherever CORNERS_MODEL does, in the web view and in the app. The card finder
+/// slot's default since 24 Nov 2026; until it's downloaded, or if it's withdrawn, CORNERS_MODEL stands in.
+pub(crate) const CORNERS_PILES: ModelOption = ModelOption {
+    slot: Slot::Detector,
+    id: "yama-corners-20261124",
+    label: "Yama's card finder, 24 Nov",
+    note: "Yama's card finder, also trained on cards tossed onto a pile: it outlines the card on top rather than the pile, at the same speed.",
+    licence: CORNERS_MODEL.licence,
+    source: Source::File {
+        prefix: "corners",
+        url: "https://github.com/bryanroscoe/yama/releases/download/scanner-models-20261124/yama-corners-20261124.onnx",
+        bytes: 4_140_304,
+        sha256: "dfd88d10a3bdf6561c523b5127e4d322be9470c5a1e2b5e7cc145b1b1ba097a7",
     },
     recogniser: None,
     default: true,
@@ -432,7 +456,7 @@ const LOCK_SURE: ModelOption = ModelOption {
 };
 
 /// Every option the server knows, by slot. The app is offered those on offer (`offered`).
-pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &LOOK_V1, &LOOK_V1_SURE, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_LEAD_GATE, &LOCK_SURE];
+pub(crate) const MODELS: &[&ModelOption] = &[&BUNDLE_DETECTOR, &CORNERS_MODEL, &CORNERS_PILES, &BUNDLE_ART, &QUERY_MODEL, &QUERY_CASCADE, &LOOK_OFF, &LOOK_V0, &LOOK_V1, &LOOK_V1_SURE, &TEXT_AUTO, &TEXT_MLKIT, &TEXT_PADDLE, &TEXT_TESSERACT, &LOCK_LEAD, &LOCK_LEAD_GATE, &LOCK_SURE];
 
 impl ModelOption {
     /// Its file in the bundle's folder, if it has one. A file of ours is never `embed.onnx`, which
@@ -521,8 +545,9 @@ pub(crate) async fn offered(off: &Withdrawn, dir: &Path, manifest: Option<&serde
 /// When a slot's default isn't on offer (still downloading after a deploy, withdrawn because it
 /// broke, or needing what an app can't run), the option that stands in for it before the slot's
 /// base: the default before it. So `YAMA_SCAN_WITHDRAW=look-v1` puts phones back on v0, not off,
-/// and an app that can't feed the cascade its `cuts` runs the same model whole.
-const STANDS_IN: &[(&str, &str)] = &[("look-v1", "look-v0"), ("yama-art-20261118-cascade", "yama-art-20261118")];
+/// an app that can't feed the cascade its `cuts` runs the same model whole, and the pile finder
+/// still downloading after a deploy leaves phones on the 20 Nov finder, not the bundle's.
+const STANDS_IN: &[(&str, &str)] = &[("look-v1", "look-v0"), ("yama-art-20261118-cascade", "yama-art-20261118"), ("yama-corners-20261124", "yama-corners-20261120")];
 
 /// The option a slot runs unless the app chooses another: its default if on offer, else what
 /// stands in for it (`STANDS_IN`, in turn), else its base, else the first on offer.
@@ -1448,9 +1473,16 @@ mod tests {
             std::fs::write(dir.join(o.file().unwrap()), vec![0u8; o.bytes().unwrap() as usize]).unwrap();
         }
         let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        // The pile finder (the default) not here yet: the 20 Nov finder stands in for it, not the bundle's.
         assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector", "yama-corners-20261120"]), "yama-corners-20261120".into()));
         assert_eq!(info["models"]["detector"]["options"][1]["file"], file(&CORNERS_MODEL).as_str());
         assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118"]), "yama-art-20261118".into()));
+        // Once it's here, it's the default, and the 20 Nov finder stays an option.
+        std::fs::write(dir.join(CORNERS_PILES.file().unwrap()), vec![0u8; CORNERS_PILES.bytes().unwrap() as usize]).unwrap();
+        let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle", Some(&token), None).await;
+        assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector", "yama-corners-20261120", "yama-corners-20261124"]), "yama-corners-20261124".into()));
+        assert_eq!(info["models"]["detector"]["options"][2]["file"], file(&CORNERS_PILES).as_str());
+        assert_eq!(info["files"]["detector"], file(&BUNDLE_DETECTOR).as_str());
         assert_eq!(info["files"]["embed"], file(&QUERY_MODEL).as_str());
         let (_, info) = testutil::send(&app, Method::GET, "/api/scan/bundle?can=cuts", Some(&token), None).await;
         assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118", "yama-art-20261118-cascade"]), "yama-art-20261118-cascade".into()));
@@ -1461,15 +1493,26 @@ mod tests {
         cfg.data_dir = data.path().to_path_buf();
         cfg.offline = true;
         assert_eq!(recorded_version(&cfg, None).await, format!("{BUNDLE_VERSION}+yama-art-20261118"));
-        // Withdrawn, Yama's card finder gives way to the bundle's, and the cascade to the whole model.
-        cfg.scan_withdrawn = vec!["yama-corners-20261120".into(), "yama-art-20261118-cascade".into()];
+        // Withdrawn, Yama's card finders give way to the bundle's, and the cascade to the whole model.
+        cfg.scan_withdrawn = vec!["yama-corners-20261124".into(), "yama-corners-20261120".into(), "yama-art-20261118-cascade".into()];
         let pool2 = crate::db::test_pool().await;
         let (_, token2) = testutil::user(&pool2, "finder2@example.com").await;
         let app2 = crate::routes::app(testutil::state_with(cfg, pool2).await);
         let (_, info) = testutil::send(&app2, Method::GET, "/api/scan/bundle?can=cuts", Some(&token2), None).await;
         assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector"]), "bundle-detector".into()));
         assert_eq!(slot(&info, "art"), (ids(&["bundle", "yama-art-20261118"]), "yama-art-20261118".into()));
+        // The pile finder alone withdrawn: back on the 20 Nov finder.
+        let mut cfg3 = testutil::config();
+        cfg3.data_dir = data.path().to_path_buf();
+        cfg3.offline = true;
+        cfg3.scan_withdrawn = vec!["yama-corners-20261124".into()];
+        let pool3 = crate::db::test_pool().await;
+        let (_, token3) = testutil::user(&pool3, "finder3@example.com").await;
+        let app3 = crate::routes::app(testutil::state_with(cfg3, pool3).await);
+        let (_, info) = testutil::send(&app3, Method::GET, "/api/scan/bundle", Some(&token3), None).await;
+        assert_eq!(slot(&info, "detector"), (ids(&["bundle-detector", "yama-corners-20261120"]), "yama-corners-20261120".into()));
         assert_eq!(CORNERS_MODEL.file().unwrap(), "corners-18f9d6aab2a4.onnx");
+        assert_eq!(CORNERS_PILES.file().unwrap(), "corners-dfd88d10a3bd.onnx");
         assert_eq!(QUERY_CASCADE.file().unwrap(), "query-103b3d9af498.onnx");
         // A bundle whose detector reads another window gets none of ours.
         let other = serde_json::json!({"recogniser": {"sha256": RECOGNISER}, "constants": {"det_input": 320, "rotations": 4}});
