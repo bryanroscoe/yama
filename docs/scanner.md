@@ -1,5 +1,7 @@
 # Card scanner
 
+Status (2026-11-24, later): **a card tossed onto a pile is found and outlined by itself**, not with the cards under it. The default card finder is now `yama-corners-20261124`, the 20 Nov finder trained on further with cards on piles and with cards whose frames have strong lines inside them (Sagas, Classes, Cases, split, adventure and flip cards). On 600 simulated frames of held-out cards on piles its outline lands within 10% of the top card 97% of the time (the 20 Nov finder 40%; on piles of three or more, 97% against 10%) and the art names the right card on 93% (68%), none wrong; on Bryan's 516 labelled scans it locks 467 right and 1 wrong (462 and 1); on real webcam photos of card boards its corners are within 10% for 89% of cards (36%). Same graph and speed; the 20 Nov finder stands in until a server has the file. See "Cards on a pile, and their borders".
+
 Status (2026-11-24): **only a card-shaped outline names a card by its art** (`cardShape.ts`, `outlineKind`). One card tilted until its outline looks square is still that card: its title and collector line may name it, not its art alone, and the chip says "Hold the card flatter". Any other outline that isn't card-shaped (a column of overlapping cards, a sliver, a dented outline) names and reads nothing and touches no hold ("Show one card at a time"). From the scanner run on public photos of hard cards (fanned hands, overlapping columns, boards, slabs), where wrong art locks came from outlines that weren't one card; it cut held-out wrong locks from 24 to 10, and none of Bryan's 516 labelled scans failed it but his own Whiteout misread of 23 Nov. See "Hard cards from public photos".
 
 Status (2026-11-23, late): **foil by its sheen**: with the finish at Regular, a card whose text box shows a foil's rainbow (its paper's colour spread over three hues or more, `foil.ts`) is added as Foil, and the "Added …" shows ", foil" (", foil?" from one frame) with **Foil** or **Not foil** beside Undo to switch it (Scan settings, "Foil by its shine", on by default; full-art and borderless printings keep the finish chosen). The close-ups **zoom in themselves** from where the card was, so the person points the box at the name or the set code instead of bringing the phone close, and zoom back after. A card it can't name **takes turns** between 1x and 0.5x instead of going wide once. See "Foil by its sheen, close-ups that zoom, and taking turns".
@@ -232,6 +234,38 @@ Bryan's Westvale photo, through the same steps (`eval/sample.test.ts`): the titl
 - **The "worth it" amount** is $2 by default ("more than a couple bucks"); an amount already set on a device stays.
 
 **The sheet (2026-11-13).** Bryan, on the Pixel 3: "All this extra question stuff should be a tapable expandable thing. There should be a pinch-to-zoom on the picture too. I should be able to drag away this huge bottom drawer if I want as well." So (`sheet.tsx`): the choices that rarely change (finish, where cards go, Keep adding, Close-ups, Mute, Save scan photos) sit in one "Scan settings" row that shows what's set and opens with a tap, remembered per device (`yama.scan.settingsOpen`); progress notes and errors stay in view (`ScannerView`'s `controls` against `settings`). Two fingers on the camera pinch its zoom, within the camera's own range or 1× to 3× digital, alongside the + and − buttons. The sheet has a handle: drag it down to hide the sheet and see the whole camera, drag it up or tap it (or Enter) to bring it back; a card that needs a tap brings it back by itself.
+## Cards on a pile, and their borders (2026-11-24, later)
+
+Bryan, 24 Nov 2026: "The next thing we need to fix is the ability to identify cards and stacks of cards as you're tossing them on top of each other, as well as identify their borders better ... I was trying to just scan some cards not in my scanner [tray] and it sucked."
+
+**Why it failed.** The default card finder (`yama-corners-20261120`, since 22 Nov) had been trained on one card at a time, with at most a sliver of another at the window's edge. It places each corner as a softmax-weighted vote over the window's cells; on a pile the corners of the cards beneath vote as well, and the corner lands between cards. Such an outline either spans several cards (the art read across them) or isn't card-shaped and is passed over ("Show one card at a time", from #213). ManaVault's finder, which looks four ways round, held up better on piles but less tightly on a single card.
+
+**Measured [ran]** in the scanner lab (`scanner-lab/pile.py`, `pile_eval.py`, `frames_eval.py`; README.md, "The card finder on piles"), through identify()'s two passes, the art model (yama-art-20261118) and the lead rule, one frame each:
+
+| | 20 Nov finder | ManaVault's | 24 Nov finder |
+|---|---|---|---|
+| Piles, 600 frames of 300 held-out cards on 0 to 8 others: outline within 10% of the top card's short side | 39.8% | 76.7% | **97.3%** |
+| on piles of 3 or more (245 frames) | 9.8% | 73.1% | **97.1%** |
+| right card locked (lead rule), all / 3 or more; wrong | 67.8% / 50.2%; 0 | 85.5% / 83.3%; 0 | **93.3% / 93.1%; 0** |
+| a card alone on the table (68 frames): within 5%, locked | 95.6%, 94.1% | 67.6%, 91.2% | 95.6%, 94.1% |
+| Bryan's 516 labelled scans (data/own and the 23 Nov corpus): locked right, wrong | 462, 1 | 456, 2 | **467, 1** |
+| TCG-AR real webcam boards (636 card fronts; private evaluation, never trained on): corners within 10%, the right card outlined | 36.3%, 81.4% | 82.4%, 92.3% | **88.7%, 98.0%** |
+| Public real photos (magic_card_detector and mtgscan, MIT; 71 cards: Alpha and Beta boards, white borders at an angle, a holder, an overlapping column): locked right, wrong | 56, 0 | 56, 0 | **63, 0** |
+| of those, the overlapping column (10 cards): locked right | 0 | 2 | **4** |
+| 800 held-out simulated single cards, half with fingers over corners: locked right | 96.0%, 93.5% | | 96.5%, 95.0% |
+| Held-out Sagas, Classes, Cases, split, adventure and flip cards: within 5% alone, on two others | 66%, 5% | 30%, 21% | **88%, 77%** |
+
+The held-out single-card windows' corner error is unchanged (median 1.38% of the short side against 1.35%). On Bryan's scans 7 locks were lost and 12 gained, every lost one scoring 0.64 to 0.70, at the lead rule's edge; his Wrath of Khan (a Saga) locks at 0.84. The pile frames are simulated: Scryfall pictures of real cards, sleeves, foil, glare, shadows, a camera tilt and phone optics, not photographs of piles.
+
+**What changed.**
+
+- **The finder** (`yama-corners-20261124`, release `scanner-models-20261124`, `CORNERS_PILES` in server/src/scan.rs) is the 20 Nov finder trained on further: first with piles added (`MODE=pile`), which fixed piles but made a single Saga, Class or Case worse (the vertical lines inside their frames pulled a corner in, as another card's edge would on a pile: within 5%, 69% to 44% for Sagas alone), then with those layouts added, alone, tight and on piles. The same graph, input and outputs, so it runs unchanged in the web view and in the app's own code, at the same speed. It is the card finder slot's default; until a server has downloaded it, or if it's withdrawn (`YAMA_SCAN_WITHDRAW=yama-corners-20261124`), the 20 Nov finder stands in (`STANDS_IN`), not ManaVault's. Test scanner speed times it as the faster finder (`FAST_DETECTOR`).
+- Nothing the scanner decides changed: the shape check, the holds and the lead rule are as they were. A card tossed onto the one just filed ends its hold as any other card does, by its art.
+
+**Tried and not kept.** Snapping each side of the outline to the strongest straight edge near it (no model): on the pile frames it made outlines worse, a single card's median error from 1.3% to 4.7%, because the strongest edge beside a card's side is often a sleeve's edge or the printed border, not the card's.
+
+**Not done.** Split cards are still the hardest layout (on two others, 62% within 5%), and an overlapping column of cards still locks only 4 of its 10 cards. Fanned hands weren't measured with this finder. The numbers above are simulated piles and photos of other people's boards; Bryan's own piles on his phone are "Left for a real phone test", 12.
+
 ## Hard cards from public photos (2026-11-24)
 
 Bryan, 23 Nov 2026: "Once we get this launched I want you to do a bigger media search to find more pictures of hard-to-scan cards and try to make ours work better with them." A search found almost no clearly licensed public photos of hard Magic cards (Reddit's and eBay's terms forbid using theirs; Roboflow's sets need an account). Run [ran] in the scanner lab (outside the repository; nothing kept in it) with the app's default finder and art model and its rules, one frame a card, name-level:
@@ -248,7 +282,7 @@ What changed:
 Not done (measured or proposed, docs only):
 
 - **Read the title line without the card's outline.** The title boxes annotated on fanned hands gave an upper bound of 96% right. A whole-frame test on glare and plain paper below tested what happens when OCR has to find the text itself.
-- **The bundle's detector as a fallback, or a finder retrained** on overlapping columns, fanned hands, boards, slabs with their labels, dice or fingers over the text.
+- **The bundle's detector as a fallback, or a finder retrained** on overlapping columns, fanned hands, boards, slabs with their labels, dice or fingers over the text. (Piles and boards since the same day, "Cards on a pile, and their borders": the column's front cards lock 4 of 10, from 0. Fanned hands and slabs not yet measured with it.)
 - **Gallery rows that aren't cards** (sticker sheets, emblems, tokens) pruned or weighed down: Enhancement Stickers alone won 114 junk reads.
 - **A capture session** of Bryan's own cards fills what no public set covers (foil types, sleeves, toploaders, slabs, flash on and off, Japanese, double-faced cards, battles): about 25 minutes, each card flat and in its condition, pulled with `corpus_pull.sh`.
 
@@ -1258,6 +1292,8 @@ SCANNER_RECOGNIZER_EVAL=1 SCANNER_BUNDLE_DIR=data/scan-bundle/<version> npx vite
 10. **The art read in the app (2026-11-22).** With the card finder in the app (9), Scan settings, Models, under Art match: "Read the card's art in the app's own code too" is ticked and says "Reading in the app" with its time a read. Scan a stack and check cards are named as before. Press Test scanner speed: "card finder and art in the app" against the same models without them, and the line saying its score is within a small amount of the worker's. With Scanner diagnostics on, `get_scan_timings` sets `…-native` art apart. To turn it off, untick it.
 
 11. **The finder's speed on the live camera (2026-11-22).** Update the app (the APK released with this change). With Scanner diagnostics on, scan a stack as before. Scan settings, Models, under Card finder, should say well under 100 ms a frame and several frames a second, with the scaling time beside it. `get_scan_timings` for the new records: `finder_ms` near the speed test's (about 40 ms with the default card finder, 15 with Yama's), `finder_fps` up from 1.2 to 3.6, `finder_convert_ms` well under 66, and the time to name a card. `art_ms` should be no slower than before (80 to 104 ms). Scan for a few minutes on end, and note whether the phone gets hot or slows down. If `finder_ms` is still far above the speed test's, `finder_wait_ms`, `finder_cut_wait_ms` and `camera_copy_ms` say whether the loop waits on the camera or on text being cut.
+
+12. **Cards tossed onto a pile (2026-11-24).** No APK update needed: the app's finder loads the new file itself (Scan settings, Models, Card finder: "Yama's card finder, 24 Nov"). With Scanner diagnostics on, scan 20 cards by tossing each onto the last on a table, not in the tray: the outline should hug the card on top, not the pile, and each card should be named without "Show one card at a time". Then the same with the 20 Nov finder chosen in Models, and compare `get_scan_timings` by `models.detector`. Include a Saga or a split card, a sleeved stack and a playmat.
 
 ## Sources
 

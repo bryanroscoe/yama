@@ -3642,3 +3642,23 @@ cards ended with Skip or Scan next and nothing was kept. Decided:
 No new process, service or trust boundary: the admin's read of shared photos is the one decided on
 15 November 2026, and the worker is the page's own. Details: [docs/scanner.md](docs/scanner.md),
 "Scan photos of every card named: a training corpus".
+
+## The card finder trained on piles (24 November 2026)
+
+Bryan, 24 Nov 2026: "The next thing we need to fix is the ability to identify cards and stacks of cards as
+you're tossing them on top of each other, as well as identify their borders better."
+
+Decided: Yama's card finder fine-tuned on cards tossed onto piles, and on cards with strong lines inside
+their frames (Sagas, Classes, Cases, split, adventure and flip cards), `yama-corners-20261124`, is the card
+finder slot's default. The 20 Nov finder stays an option and stands in for it (`STANDS_IN`) while a server
+downloads it or if it's withdrawn, rather than ManaVault's.
+
+- Why: the 20 Nov finder votes each corner over the window's cells, and on a pile the corners of the cards
+  beneath vote too, so its outline spanned cards (within 10% of the top card on 10% of simulated frames on
+  piles of three or more). The new one: 97%, with the right card locked on 93% against 50%.
+- The same graph, input and outputs as the 20 Nov finder, so nothing else changes: the web view and the
+  app's own finder run the file they're given, at the same speed, and no APK update is needed. What the
+  scanner decides from an outline (the shape check, holds, the lead rule) is unchanged.
+- The evidence and what wasn't kept (snapping the outline to image edges made it worse) are in
+  [docs/scanner.md](docs/scanner.md#cards-on-a-pile-and-their-borders-2026-11-24-later). Not yet checked on
+  a phone with real piles.

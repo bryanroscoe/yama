@@ -16,8 +16,12 @@ export const SPEED_FRAME = { width: 640, height: 1138 } as const;
 /** Cards shown, and frames of each: one fresh frame, then tracked ones, as live. */
 export const SPEED_CARDS = 8;
 export const FRAMES_PER_CARD = 4;
-/** The faster options (docs/scanner.md, "Faster options"), timed beside this device's and the defaults. */
-export const FAST_DETECTOR = "yama-corners-20261120";
+/**
+ * The faster options (docs/scanner.md, "Faster options"), timed beside this device's and the defaults.
+ * The card finder is the 24 Nov one, trained on piles too: as fast as the 20 Nov one it replaced as the
+ * default (docs/scanner.md, "Cards on a pile, and their borders"), which stands in for it until it's here.
+ */
+export const FAST_DETECTOR = "yama-corners-20261124";
 export const FAST_ART = "yama-art-20261118-cascade";
 /**
  * The defaults before the faster ones took their place (22 Nov 2026: docs/scanner.md, "The faster
