@@ -35,8 +35,8 @@ final class ScannerFrames {
         /** The whole buffer as delivered (the crop is part of it): where the frame lies on the sensor (LineFocus). */
         int bufferWidth;
         int bufferHeight;
-        /** What the camera said of this frame as it took it, or null where it didn't (LineFocus.Capture). */
-        LineFocus.Capture capture;
+        /** The sensor's timestamp of the frame (ImageInfo's, as its capture result says it), or 0: what its capture is found by (LineFocus.Captures). */
+        long timestamp;
         /** Counts up from 1; 0 is "no frame". */
         long seq;
 
@@ -90,13 +90,13 @@ final class ScannerFrames {
         return out;
     }
 
-    /** The camera thread: keep this frame as the newest (its buffer no bigger than its crop, and nothing said of its capture). */
+    /** The camera thread: keep this frame as the newest (its buffer no bigger than its crop, and no timestamp). */
     void put(ByteBuffer y, ByteBuffer u, ByteBuffer v, int yRowStride, int uvRowStride, int uvPixelStride, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation) {
-        put(y, u, v, yRowStride, uvRowStride, uvPixelStride, cropLeft, cropTop, cropWidth, cropHeight, rotation, cropLeft + cropWidth, cropTop + cropHeight, null);
+        put(y, u, v, yRowStride, uvRowStride, uvPixelStride, cropLeft, cropTop, cropWidth, cropHeight, rotation, cropLeft + cropWidth, cropTop + cropHeight, 0);
     }
 
-    /** The camera thread: keep this frame as the newest, with its whole buffer's size and what the camera said of it. */
-    void put(ByteBuffer y, ByteBuffer u, ByteBuffer v, int yRowStride, int uvRowStride, int uvPixelStride, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation, int bufferWidth, int bufferHeight, LineFocus.Capture capture) {
+    /** The camera thread: keep this frame as the newest, with its whole buffer's size and the sensor's timestamp. */
+    void put(ByteBuffer y, ByteBuffer u, ByteBuffer v, int yRowStride, int uvRowStride, int uvPixelStride, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation, int bufferWidth, int bufferHeight, long timestamp) {
         Frame f;
         int filling;
         lock.lock();
@@ -121,7 +121,7 @@ final class ScannerFrames {
         f.rotation = ((rotation % 360) + 360) % 360;
         f.bufferWidth = bufferWidth;
         f.bufferHeight = bufferHeight;
-        f.capture = capture;
+        f.timestamp = timestamp;
         lock.lock();
         try {
             // Cleared while this frame was being copied: it belongs to the camera that closed.

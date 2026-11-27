@@ -284,6 +284,36 @@ describe("focusing on the collector line (27 Nov 2026)", () => {
     plain.close();
   });
 
+  it("tells the camera where a held card is, as shares of the frame, only the newest while one is on its way", async () => {
+    const { plugin, channel, sets } = fakes();
+    let release: () => void = () => undefined;
+    const slow: ScannerCameraPlugin = {
+      ...plugin,
+      set: async (o) => {
+        // The first held card's call is answered late: newer ones wait, and only the newest goes.
+        if (o.lineQuad && sets.filter((x) => x.lineQuad).length === 0) await new Promise<void>((r) => (release = r));
+        return plugin.set(o);
+      },
+    };
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160, lineFocus: true }, { plugin: slow, channel, settleMs: 0 });
+    await cam.ready;
+    // The canvas is 360 x 640: corners in its pixels become shares of it.
+    cam.followLine([[36, 64], [324, 64], [324, 576], [36, 576]]);
+    cam.followLine([[0, 0], [1, 0], [1, 1], [0, 1]]);
+    cam.followLine([[18, 32], [342, 32], [342, 608], [18, 608]]);
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sets.map((x) => x.lineQuad)).toEqual([
+      [0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9],
+      [0.05, 0.05, 0.95, 0.05, 0.95, 0.95, 0.05, 0.95],
+    ]);
+    cam.close();
+    cam.followLine([[0, 0], [1, 0], [1, 1], [0, 1]]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sets).toHaveLength(2);
+  });
+
   it("gives a card's cut what the camera said of its frame", async () => {
     const { plugin, channel } = fakes(DESCRIBED, { capture: 0x83 | (21 << 8) | (166 << 16) });
     const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160 }, { plugin, channel, settleMs: 0 });

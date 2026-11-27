@@ -3697,10 +3697,11 @@ always looks a little fuzzy. I'm not sure if it's properly focusing on that text
 easily make the autofocus focus just on that text".
 
 Decided: in collection scans the Android app's camera moves its autofocus region (Camera2
-`CONTROL_AF_REGIONS`) onto the card's collector corner as the app's card finder sees the card, mapped from
-the finder's corners to the sensor in native code (`LineFocus.java`), and leaves autofocus in its
-continuous mode: no focus scan, no lens held. Only with the lens on Automatic, focus not held by hand and
-the app's finder running; a per-device switch in Scan settings turns it off. Each frame reply now carries
+`CONTROL_AF_REGIONS`) onto the card's collector corner as the app's card finder sees the card, or as the
+hold finds the card while its sheet is open and the finder rests, mapped to the sensor in native code
+(`LineFocus.java`), and leaves autofocus in its continuous mode: no focus scan, no lens held. Only with the
+lens on Automatic and focus not held by hand; a region nobody keeps up for 3 s lapses; a per-device switch
+in Scan settings turns it off. Each frame reply now carries
 what the camera said of that frame (autofocus state, focus distance, exposure time, whether the region was
 on the line) in its header's four spare bytes, and Scanner diagnostics keep it with each collector-line read.
 

@@ -191,6 +191,32 @@ public class ScannerCameraPlugin extends Plugin {
     private volatile double[] lineBox;
     /** How many times the region was moved for this camera. */
     private volatile int lineMoves;
+    /**
+     * Counts every forgetting of the region (a rebind, focus changed or held, the line turned off,
+     * the region gone stale): a region worked out on the finder's thread before one is dropped when
+     * it reaches the main thread (Codex review of #218).
+     */
+    private volatile int lineGen;
+    /** The regions sent last, which a capture's reported region is matched against (`afLine`). */
+    private final LineFocus.Sent sentRects = new LineFocus.Sent();
+    /** The camera's crop region as its last capture result said (left, top, right, bottom), or null. */
+    private volatile int[] scalerCrop;
+    /** The camera thread's: the newest frame's buffer size, crop and turn, for a card the page holds (`followPage`). */
+    private volatile int[] frameShape;
+    /**
+     * The main thread's: settings calls' `Camera2CameraControl` writes still settling for this
+     * binding. A region isn't moved meanwhile: a newer write would cancel the one a settings call
+     * waits on, and the call would say the camera refused it (Codex review of #218).
+     */
+    private int interopWrites;
+    /**
+     * The main thread's: a tap-to-focus point (CameraX's FocusMeteringAction) has run since focus was
+     * last held by hand. Only then is it cancelled: CameraX's cancel puts its own default metering
+     * regions into every request, over the line's (Codex review of #218).
+     */
+    private boolean pointStarted;
+    /** The main thread's: a check for a region nobody has kept up is scheduled. */
+    private boolean staleWatch;
 
     /** Frames are copied only while the page is asking for them. */
     private volatile long wantedUntil;
@@ -216,6 +242,8 @@ public class ScannerCameraPlugin extends Plugin {
         int arrayWidth;
         int arrayHeight;
         int afRegions;
+        /** The lens reports its focus distance in dioptres (calibrated or approximately); an uncalibrated one in its own units, which aren't said. */
+        boolean focusCalibrated;
     }
 
     private static final class Lens {
@@ -490,16 +518,10 @@ public class ScannerCameraPlugin extends Plugin {
                 if (Boolean.TRUE.equals(on)) {
                     if (camera == null) throw new IllegalStateException("The camera isn't open");
                     // One that failed stays stopped: the status says why, and the page's own finder runs.
-                    if (finder.failure() == null)
-                        finder.start(() -> wantedUntil = System.currentTimeMillis() + 1000, outlineView, why -> {
-                            Logger.warn(TAG, why);
-                            // Nothing moves the focus region any more: it goes, rather than stay where the card last was.
-                            main.post(this::dropLine);
-                        });
-                } else if (Boolean.FALSE.equals(on)) {
-                    finder.stop();
-                    dropLine();
-                }
+                    // (A stopped or failed finder leaves the focus region to the page's held card, or to
+                    // going stale: `checkStale`.)
+                    if (finder.failure() == null) finder.start(() -> wantedUntil = System.currentTimeMillis() + 1000, outlineView, why -> Logger.warn(TAG, why));
+                } else if (Boolean.FALSE.equals(on)) finder.stop();
                 call.resolve(finderStatus());
             } catch (RuntimeException e) {
                 call.reject(e.getMessage(), "failed");
@@ -831,6 +853,8 @@ public class ScannerCameraPlugin extends Plugin {
         o.arrayWidth = array == null ? 0 : array.width();
         o.arrayHeight = array == null ? 0 : array.height();
         o.afRegions = afRegions == null ? 0 : afRegions;
+        Integer calibration = chosen.get(CameraCharacteristics.LENS_INFO_FOCUS_DISTANCE_CALIBRATION);
+        o.focusCalibrated = calibration != null && calibration != CameraMetadata.LENS_INFO_FOCUS_DISTANCE_CALIBRATION_UNCALIBRATED;
 
         finder.stop();
         frames.clear();
@@ -848,6 +872,11 @@ public class ScannerCameraPlugin extends Plugin {
         forgetLine();
         lineMoves = 0;
         captures.clear();
+        sentRects.clear();
+        scalerCrop = null;
+        frameShape = null;
+        interopWrites = 0;
+        pointStarted = false;
 
         CameraSelector.Builder chosenCamera = new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK);
         if (o.physicalId != null) chosenCamera.setPhysicalCameraId(o.physicalId);
@@ -925,6 +954,8 @@ public class ScannerCameraPlugin extends Plugin {
             // Settings asked of the last binding end with it; the exposure it took goes back on as this one opens.
             binding++;
             exposureWrites = 0;
+            interopWrites = 0;
+            pointStarted = false;
             camera = provider.bindToLifecycle(getActivity(), selector, preview, analysis);
             preview.setSurfaceProvider(previewView.getSurfaceProvider());
             watchExposure();
@@ -957,6 +988,7 @@ public class ScannerCameraPlugin extends Plugin {
         opening++;
         forgetLine();
         captures.clear();
+        interopWrites = 0;
         camera = null;
         preview = null;
         analysis = null;
@@ -1189,7 +1221,7 @@ public class ScannerCameraPlugin extends Plugin {
         if ("continuous".equals(mode)) {
             focusMode = "continuous";
             focusDistance = 0;
-            pending.add(Camera2CameraControl.from(control).clearCaptureRequestOptions());
+            pending.add(interop(Camera2CameraControl.from(control).clearCaptureRequestOptions()));
             // That cleared the focus region too: the next frame with a card sends it again.
             forgetLine();
         } else if ("manual".equals(mode) || distance != null) {
@@ -1201,13 +1233,19 @@ public class ScannerCameraPlugin extends Plugin {
             focusDistance = diopters > 0 ? 1 / diopters : metres;
             // The lens held by hand replaces the focus region; it isn't moved while focus is held.
             forgetLine();
-            pending.add(control.cancelFocusAndMetering());
+            // A tap-to-focus point under way would hold the lens itself; only then is it cancelled.
+            if (pointStarted) {
+                pointStarted = false;
+                pending.add(control.cancelFocusAndMetering());
+            }
             pending.add(
-                Camera2CameraControl.from(control).setCaptureRequestOptions(
-                    new CaptureRequestOptions.Builder()
-                        .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
-                        .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, diopters)
-                        .build()
+                interop(
+                    Camera2CameraControl.from(control).setCaptureRequestOptions(
+                        new CaptureRequestOptions.Builder()
+                            .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+                            .setCaptureRequestOption(CaptureRequest.LENS_FOCUS_DISTANCE, diopters)
+                            .build()
+                    )
                 )
             );
         }
@@ -1218,8 +1256,12 @@ public class ScannerCameraPlugin extends Plugin {
             lineFocusAsked = line;
             boolean had = lineRect != null;
             forgetLine();
-            if (!line && had && "continuous".equals(focusMode)) pending.add(Camera2CameraControl.from(control).clearCaptureRequestOptions());
+            if (!line && had && "continuous".equals(focusMode)) pending.add(interop(Camera2CameraControl.from(control).clearCaptureRequestOptions()));
         }
+        // The card held while its sheet is open, where the page found it (`lineQuad`, its corners as
+        // shares of the frame): the app's finder rests then, so the page says where the card is.
+        JSArray held = call.getArray("lineQuad");
+        if (held != null) followPage(held);
         JSObject point = call.getObject("point");
         if (point != null && "continuous".equals(focusMode)) {
             Display display = ViewCompat.getDisplay(bridge.getWebView());
@@ -1229,7 +1271,10 @@ public class ScannerCameraPlugin extends Plugin {
                 FocusMeteringAction action = new FocusMeteringAction.Builder(new DisplayOrientedMeteringPointFactory(display, info, 1f, 1f).createPoint(x, y), FocusMeteringAction.FLAG_AF).build();
                 // Best effort, not waited for: it ends only once the lens has hunted, and a newer
                 // point cancels it.
-                if (info.isFocusMeteringSupported(action)) control.startFocusAndMetering(action);
+                if (info.isFocusMeteringSupported(action)) {
+                    pointStarted = true;
+                    control.startFocusAndMetering(action);
+                }
             }
         }
         int mine = binding;
@@ -1240,6 +1285,9 @@ public class ScannerCameraPlugin extends Plugin {
 
     // ---- Focus on the collector line ----
 
+    /** A region nobody has seen its card for this long is cleared: the finder at rest and no card held, so nothing keeps it where the card is. */
+    static final long STALE_MS = 3000;
+
     /**
      * The finder's thread, after each frame: move the camera's focus region with the card it sees,
      * to the card's collector line, where the page asked (LineFocus). Never waits: the region is
@@ -1248,26 +1296,61 @@ public class ScannerCameraPlugin extends Plugin {
     private void lineSeen(double[] quad, int w, int h, ScannerFrames.Frame f) {
         Opened o = opened;
         if (!lineFocusAsked || o == null || lineFocusWhy(o) != null) return;
-        double[] box = quad == null ? null : LineFocus.uprightBox(quad, w, h);
-        LineFocus.Follower.Step step = follower.see(box, SystemClock.elapsedRealtime());
-        if (step == LineFocus.Follower.Step.KEEP) return;
-        double[] at = step == LineFocus.Follower.Step.POINT ? follower.box() : null;
-        int[] rect = at == null ? null : LineFocus.sensorRect(at, new LineFocus.Geometry(f.bufferWidth, f.bufferHeight, f.cropLeft, f.cropTop, f.cropWidth, f.cropHeight, f.rotation, o.arrayWidth, o.arrayHeight));
-        if (at != null && rect == null) {
-            // The frame's place on the sensor isn't known: nothing is sent, and the next card tries again.
+        int gen = lineGen;
+        double[] to = follower.decide(quad == null ? null : LineFocus.uprightBox(quad, w, h), SystemClock.elapsedRealtime());
+        if (to == null) return;
+        if (to == LineFocus.Follower.CLEAR_BOX) {
+            main.post(() -> pointLine(o, gen, null, null));
+            return;
+        }
+        int[] rect = LineFocus.sensorRect(to, geometry(o, f.bufferWidth, f.bufferHeight, f.cropLeft, f.cropTop, f.cropWidth, f.cropHeight, f.rotation));
+        if (rect == null) {
+            // The frame's place on the sensor isn't known: nothing is sent, and the next frame tries again.
             follower.forget();
             return;
         }
-        main.post(() -> pointLine(o, rect, at));
+        main.post(() -> pointLine(o, gen, rect, to));
+    }
+
+    /**
+     * The main thread: the card held while its sheet is open, its corners (x0, y0, …, top left as
+     * printed first) as shares of the upright frame, as the page found it. The app's finder rests
+     * then, and the held card's frames are the ones the collector line is read from (Codex review
+     * of #218): the region follows it as it would follow the finder's card.
+     */
+    private void followPage(JSArray held) {
+        Opened o = opened;
+        int[] shape = frameShape;
+        if (!lineFocusAsked || o == null || shape == null || lineFocusWhy(o) != null || held.length() < 8) return;
+        double[] quad = new double[8];
+        for (int i = 0; i < 8; i++) quad[i] = held.optDouble(i, Double.NaN);
+        double[] to = follower.decide(LineFocus.uprightBox(quad, 1, 1), SystemClock.elapsedRealtime());
+        if (to == null) return;
+        if (to == LineFocus.Follower.CLEAR_BOX) {
+            pointLine(o, lineGen, null, null);
+            return;
+        }
+        int[] rect = LineFocus.sensorRect(to, geometry(o, shape[0], shape[1], shape[2], shape[3], shape[4], shape[5], shape[6]));
+        if (rect == null) {
+            follower.forget();
+            return;
+        }
+        pointLine(o, lineGen, rect, to);
+    }
+
+    private LineFocus.Geometry geometry(Opened o, int bufferWidth, int bufferHeight, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation) {
+        return new LineFocus.Geometry(bufferWidth, bufferHeight, cropLeft, cropTop, cropWidth, cropHeight, rotation, o.arrayWidth, o.arrayHeight, scalerCrop);
     }
 
     /**
      * The main thread: point autofocus at `rect` (the sensor's coordinates), keeping it in its
-     * continuous mode, or clear the region (null). Only for the camera `o` still open, with focus
-     * its own and the line still asked for; otherwise the follower starts again from nothing.
+     * continuous mode, or clear the region (null). Only for the camera `o` still open, the region
+     * not forgotten since it was worked out (`gen`), focus its own and the line still asked for.
      */
-    private void pointLine(Opened o, int[] rect, double[] box) {
-        if (camera == null || opened != o || !lineFocusAsked || !"continuous".equals(focusMode)) {
+    private void pointLine(Opened o, int gen, int[] rect, double[] box) {
+        if (camera == null || opened != o || gen != lineGen || !lineFocusAsked || !"continuous".equals(focusMode)) return;
+        if (interopWrites > 0) {
+            // A settings change is settling: the next frame sends the region again.
             follower.forget();
             return;
         }
@@ -1287,22 +1370,53 @@ public class ScannerCameraPlugin extends Plugin {
         lineRect = rect;
         lineBox = box;
         lineMoves++;
+        sentRects.add(rect);
         c2.setCaptureRequestOptions(new CaptureRequestOptions.Builder().setCaptureRequestOption(CaptureRequest.CONTROL_AF_REGIONS, new MeteringRectangle[] { region }).build());
+        watchStale();
+    }
+
+    /** The main thread: check, after a while, that someone still sees the card the region is on. */
+    private void watchStale() {
+        if (staleWatch) return;
+        staleWatch = true;
+        main.postDelayed(this::checkStale, STALE_MS);
     }
 
     /**
-     * The main thread: the finder stopped, so nothing moves the region with the card any more: one
-     * in force is cleared (focus is the camera's own again), and the next frame with a card, once
-     * the finder runs again, sends one.
+     * The main thread: a region whose card nobody has seen for {@link #STALE_MS} (the finder at
+     * rest or failed, and no card held on the sheet) is cleared, so the camera's own autofocus
+     * meets the next card, rather than the region staying where the last one was.
      */
-    private void dropLine() {
-        boolean had = lineRect != null;
+    private void checkStale() {
+        staleWatch = false;
+        if (lineRect == null || camera == null) return;
+        long since = SystemClock.elapsedRealtime() - follower.cardAt();
+        if (since < STALE_MS) {
+            staleWatch = true;
+            main.postDelayed(this::checkStale, Math.max(100, STALE_MS - since));
+            return;
+        }
+        boolean continuous = "continuous".equals(focusMode);
         forgetLine();
-        if (had && camera != null && "continuous".equals(focusMode)) Camera2CameraControl.from(camera.getCameraControl()).clearCaptureRequestOptions();
+        if (continuous) Camera2CameraControl.from(camera.getCameraControl()).clearCaptureRequestOptions();
+    }
+
+    /** A settings call's own `Camera2CameraControl` write: counted until it settles, for this binding only. */
+    private <T> ListenableFuture<T> interop(ListenableFuture<T> write) {
+        int mine = binding;
+        interopWrites++;
+        write.addListener(
+            () -> {
+                if (mine == binding) interopWrites = Math.max(0, interopWrites - 1);
+            },
+            ContextCompat.getMainExecutor(getContext())
+        );
+        return write;
     }
 
     /** Whatever region was in force is gone (or replaced): forgotten, so the next frame with a card sends one again. */
     private void forgetLine() {
+        lineGen++;
         lineRect = null;
         lineBox = null;
         follower.forget();
@@ -1318,25 +1432,34 @@ public class ScannerCameraPlugin extends Plugin {
         if (o.afRegions <= 0 || o.arrayWidth <= 0 || o.arrayHeight <= 0) return "This camera can't be told where to focus.";
         if (o.physicalId != null) return "Only with the lens on Automatic.";
         if (!"continuous".equals(focusMode)) return "Focus is held at a distance.";
-        if (!finder.running()) return "Only while the app's card finder runs.";
         return null;
     }
 
-    /** The camera's capture thread: what it says of a frame (focus, exposure, whether the line's region was asked), kept to be matched with the frame. */
+    /**
+     * The camera's capture thread: what it says of a frame (focus, exposure, and whether it focused
+     * on a region sent for the line), kept to be matched with the frame by its timestamp; and the
+     * crop region, for where frames lie on the sensor.
+     */
     private void noteCapture(CaptureRequest request, TotalCaptureResult result) {
+        android.graphics.Rect crop = result.get(CaptureResult.SCALER_CROP_REGION);
+        if (crop != null) {
+            int[] known = scalerCrop;
+            if (known == null || known[0] != crop.left || known[1] != crop.top || known[2] != crop.right || known[3] != crop.bottom) scalerCrop = new int[] { crop.left, crop.top, crop.right, crop.bottom };
+        }
         Long at = result.get(CaptureResult.SENSOR_TIMESTAMP);
         if (at == null) return;
         Integer af = result.get(CaptureResult.CONTROL_AF_STATE);
         Float diopters = result.get(CaptureResult.LENS_FOCUS_DISTANCE);
         Long exposure = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
-        int[] mine = lineRect;
-        MeteringRectangle[] asked = request.get(CaptureRequest.CONTROL_AF_REGIONS);
-        boolean onLine = mine != null && asked != null && asked.length > 0 && sameRegion(asked[0], mine);
-        captures.note(at, new LineFocus.Capture(af == null ? -1 : af, diopters == null ? -1 : diopters, exposure == null ? 0 : exposure, onLine));
-    }
-
-    private static boolean sameRegion(MeteringRectangle m, int[] rect) {
-        return m.getMeteringWeight() > 0 && m.getX() == rect[0] && m.getY() == rect[1] && m.getWidth() == rect[2] - rect[0] && m.getHeight() == rect[3] - rect[1];
+        // The region the camera says it used (it may trim or move one), else the one asked for.
+        MeteringRectangle[] used = result.get(CaptureResult.CONTROL_AF_REGIONS);
+        if (used == null) used = request.get(CaptureRequest.CONTROL_AF_REGIONS);
+        boolean onLine = false;
+        if (used != null) for (MeteringRectangle m : used) if (m.getMeteringWeight() > 0 && sentRects.has(new int[] { m.getX(), m.getY(), m.getX() + m.getWidth(), m.getY() + m.getHeight() })) onLine = true;
+        Opened o = opened;
+        // In dioptres only where the lens says it is calibrated, at least roughly (Codex review of #218).
+        float d = diopters == null || o == null || !o.focusCalibrated ? -1 : diopters;
+        captures.note(at, new LineFocus.Capture(af == null ? -1 : af, d, exposure == null ? 0 : exposure, onLine));
     }
 
     /** What the page is told of it (`describe`). */
@@ -1664,13 +1787,22 @@ public class ScannerCameraPlugin extends Plugin {
                 image.getImageInfo().getRotationDegrees(),
                 image.getWidth(),
                 image.getHeight(),
-                captures.at(image.getImageInfo().getTimestamp())
+                image.getImageInfo().getTimestamp()
             );
+            noteShape(image.getWidth(), image.getHeight(), crop, image.getImageInfo().getRotationDegrees());
         } catch (RuntimeException e) {
             Logger.warn(TAG, "A camera frame was dropped: " + e.getMessage());
         } finally {
             image.close();
         }
+    }
+
+    /** The camera thread: the newest frame's buffer size, crop and turn (`frameShape`), kept anew only when they change. */
+    private void noteShape(int w, int h, android.graphics.Rect crop, int rotation) {
+        int[] s = frameShape;
+        int turn = ((rotation % 360) + 360) % 360;
+        if (s != null && s[0] == w && s[1] == h && s[2] == crop.left && s[3] == crop.top && s[4] == crop.width() && s[5] == crop.height() && s[6] == turn) return;
+        frameShape = new int[] { w, h, crop.left, crop.top, crop.width(), crop.height(), turn };
     }
 
     /** Frames a second over the last arrivals (up to 32), or 0 before there are two. */
@@ -1762,7 +1894,7 @@ public class ScannerCameraPlugin extends Plugin {
         r.findMs = (float) snap.ms;
         r.passes = snap.passes;
         r.ageMs = (now - snap.takenAt) / 1e6f;
-        r.capture = snap.capture;
+        r.capture = captures.exact(snap.timestamp);
         r.sentAt = System.currentTimeMillis();
         return r;
     }
@@ -1827,7 +1959,7 @@ public class ScannerCameraPlugin extends Plugin {
         r.fullWidth = uw;
         r.fullHeight = uh;
         r.seq = f.seq;
-        r.capture = f.capture;
+        r.capture = captures.exact(f.timestamp);
         r.bytes = new byte[HEADER + outW * outH * 4];
         ScannerFrames.toRgba(f, rx, ry, rw, rh, outW, outH, r.bytes, HEADER);
         r.length = r.bytes.length;

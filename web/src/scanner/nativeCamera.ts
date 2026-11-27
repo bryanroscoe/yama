@@ -300,6 +300,8 @@ export interface NativeSet {
   exposure?: number;
   /** Autofocus on the collector line of the card the finder sees, or not (an older APK ignores it). */
   lineFocus?: boolean;
+  /** The card held while the finder rests: its corners (x0, y0, …) as shares of the frame, for the focus region (an older APK ignores it). */
+  lineQuad?: number[];
 }
 
 export interface FrameRequest {
@@ -596,6 +598,12 @@ export interface NativeCamera extends CameraSource {
   setExposure: ExposureSetter;
   /** Autofocus on the collector line, or not, from now on (an APK before 27 Nov 2026 ignores it). */
   setLineFocus(on: boolean): Promise<void>;
+  /**
+   * The card held while its sheet is open (the app's finder rests then), its corners in frame
+   * pixels: the camera's focus region follows its collector line. Never waits; while one is on its
+   * way only the newest is kept to send next.
+   */
+  followLine(quad: Quad): void;
   /** Time every way a frame can cross to the page. */
   bench(frames?: number): Promise<BenchRow[]>;
   /**
@@ -673,6 +681,8 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
   const sent: { zoom?: number; torch?: boolean; focus?: string; point?: string; exposure?: number } = {};
   /** The camera controls' own exposure setter for this camera, while they hold it (camera.tsx, `ExposureBound`). */
   let lentExposure: ExposureSetter | null = null;
+  /** The held card's corners on their way to the focus region (`followLine`), and the newest waiting. */
+  const line: { busy: boolean; next: number[] | null } = { busy: false, next: null };
   // Away and back, the camera starts again with its flashlight off and its focus its own: what
   // was sent is forgotten, so the next change sends everything camera.tsx holds. (The exposure the
   // app sets again by itself as the camera reopens, ScannerCameraPlugin.watchExposure.)
@@ -998,6 +1008,20 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     async setLineFocus(on) {
       if (closed || !described) return;
       await set({ lineFocus: on });
+    },
+    followLine(quad) {
+      if (closed || !described || !hasFrame || !(el.width > 0) || !(el.height > 0)) return;
+      line.next = quad.flatMap(([x, y]) => [x / el.width, y / el.height]);
+      if (line.busy) return;
+      line.busy = true;
+      void (async () => {
+        while (line.next && !closed) {
+          const lineQuad = line.next;
+          line.next = null;
+          await set({ lineQuad }).catch(() => undefined);
+        }
+        line.busy = false;
+      })();
     },
     async setTorchLevel(level) {
       torchLevel = positiveOrNull(level);

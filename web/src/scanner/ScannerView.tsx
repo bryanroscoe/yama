@@ -3923,6 +3923,10 @@ function ScannerScreen({
         if (!quad) verdict = otherInView ? held.another(clock()) : held.missed(clock());
         else {
           lastQuad = quad;
+          // The app's camera focuses on this card's collector line (LineFocus.java): its finder
+          // rests while the card's sheet is open, so the hold says where the card is (Codex review
+          // of #218: the region would otherwise lapse just when these frames are read).
+          if (lineAsked.current) nativeCam.current?.followLine(quad);
           // Focus is left to the camera's own continuous autofocus (Bryan, 25 Nov 2026: "I'm
           // guessing it's a focusing issue"). Pointing it at the collector corner, as the scanner
           // did from 15 Nov 2026, ran a focus scan and held the lens there for 5 s. In Bryan's

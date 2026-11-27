@@ -153,26 +153,77 @@ public class LineFocusTest {
     }
 
     @Test
-    public void aFrameGetsItsOwnCaptureOrTheOneBefore() {
+    public void aFrameGetsItsOwnCaptureAndNoOther() {
         LineFocus.Captures c = new LineFocus.Captures();
-        assertNull(c.at(5));
+        assertNull(c.exact(5));
         LineFocus.Capture a = new LineFocus.Capture(1, 5, 1, false);
         LineFocus.Capture b = new LineFocus.Capture(2, 5, 1, true);
         c.note(100, a);
         c.note(200, b);
-        assertSame(b, c.at(200));
-        assertSame(a, c.at(100));
-        assertSame(a, c.at(150));
-        assertSame(b, c.at(250));
-        // Older than every one kept: the newest.
-        assertSame(b, c.at(50));
+        assertSame(b, c.exact(200));
+        assertSame(a, c.exact(100));
+        // Not reported (yet): nothing, never the one before or after (Codex review of #218).
+        assertNull(c.exact(150));
+        assertNull(c.exact(250));
         // Only the last 16 are kept.
         for (int i = 0; i < 20; i++) c.note(1000 + i, new LineFocus.Capture(i % 7, 5, 1, false));
-        assertSame(c.at(1019), c.at(5000));
-        assertEquals(19 % 7, c.at(1019).afState);
-        // The first two have gone: older than all kept, so the newest.
-        assertSame(c.at(1019), c.at(100));
+        assertEquals(19 % 7, c.exact(1019).afState);
+        assertNull(c.exact(100));
+        assertNull(c.exact(1003));
         c.clear();
-        assertNull(c.at(1019));
+        assertNull(c.exact(1019));
+    }
+
+    @Test
+    public void aCameraThatZoomsByCroppingHasTheRegionInsideItsCrop() {
+        // 2x by cropping on a 4000 x 3000 sensor: the crop region is the middle 2000 x 1500. A point
+        // three quarters across the picture is three quarters across the crop: 1000 + 1500.
+        LineFocus.Geometry zoomed = new LineFocus.Geometry(1000, 750, 0, 0, 1000, 750, 0, 4000, 3000, new int[] { 1000, 750, 3000, 2250 });
+        assertArrayEquals(new int[] { 2500, 750, 3000, 2250 }, LineFocus.sensorRect(new double[] { 0.75, 0, 1, 1 }, zoomed));
+        // A 16:9 stream of that crop: its middle band, 2000 x 1125 from 937.5 down.
+        LineFocus.Geometry band = new LineFocus.Geometry(1920, 1080, 0, 0, 1920, 1080, 0, 4000, 3000, new int[] { 1000, 750, 3000, 2250 });
+        assertArrayEquals(new int[] { 1000, 938, 3000, 2063 }, LineFocus.sensorRect(new double[] { 0, 0, 1, 1 }, band));
+        // The whole array as the crop region (a zoom ratio) is as no crop at all.
+        LineFocus.Geometry whole = new LineFocus.Geometry(3840, 2160, 0, 0, 3840, 2160, 90, 4000, 3000, new int[] { 0, 0, 4000, 3000 });
+        LineFocus.Geometry none = new LineFocus.Geometry(3840, 2160, 0, 0, 3840, 2160, 90, 4000, 3000);
+        double[] box = { 0.1, 0.7, 0.4, 0.8 };
+        assertArrayEquals(LineFocus.sensorRect(box, none), LineFocus.sensorRect(box, whole));
+        // An empty or malformed crop region is ignored.
+        LineFocus.Geometry bad = new LineFocus.Geometry(3840, 2160, 0, 0, 3840, 2160, 90, 4000, 3000, new int[] { 10, 10, 10, 20 });
+        assertArrayEquals(LineFocus.sensorRect(box, none), LineFocus.sensorRect(box, bad));
+    }
+
+    @Test
+    public void aReportedRegionIsOneSentWhenItOverlapsByHalf() {
+        assertEquals(1, LineFocus.overlap(new int[] { 0, 0, 10, 10 }, new int[] { 0, 0, 10, 10 }), EPS);
+        assertEquals(0, LineFocus.overlap(new int[] { 0, 0, 10, 10 }, new int[] { 20, 20, 30, 30 }), EPS);
+        assertEquals(50.0 / 150, LineFocus.overlap(new int[] { 0, 0, 10, 10 }, new int[] { 5, 0, 15, 10 }), EPS);
+        assertEquals(0, LineFocus.overlap(null, new int[] { 0, 0, 1, 1 }), EPS);
+        LineFocus.Sent sent = new LineFocus.Sent();
+        assertEquals(false, sent.has(new int[] { 0, 0, 10, 10 }));
+        sent.add(new int[] { 100, 100, 200, 200 });
+        // Trimmed a little by the camera: still the one sent.
+        assertEquals(true, sent.has(new int[] { 104, 100, 200, 196 }));
+        assertEquals(false, sent.has(new int[] { 0, 0, 1000, 1000 }));
+        assertEquals(false, sent.has(null));
+        // Only the last few are kept.
+        for (int i = 0; i < 6; i++) sent.add(new int[] { i, i, i + 1, i + 1 });
+        assertEquals(false, sent.has(new int[] { 100, 100, 200, 200 }));
+        sent.clear();
+        assertEquals(false, sent.has(new int[] { 5, 5, 6, 6 }));
+    }
+
+    @Test
+    public void decideIsSeeAndItsBoxInOneStep() {
+        LineFocus.Follower f = new LineFocus.Follower();
+        double[] box = { 0.1, 0.6, 0.4, 0.7 };
+        assertSame(box, f.decide(box, 1000));
+        assertEquals(1000, f.cardAt());
+        assertNull(f.decide(box, 1100));
+        assertEquals(1100, f.cardAt());
+        assertNull(f.decide(null, 1500));
+        // No card: when it was last seen stands.
+        assertEquals(1100, f.cardAt());
+        assertSame(LineFocus.Follower.CLEAR_BOX, f.decide(null, 2100));
     }
 }

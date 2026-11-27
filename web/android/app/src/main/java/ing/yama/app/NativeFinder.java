@@ -47,8 +47,8 @@ final class NativeFinder {
         double convertMs;
         /** When the camera delivered it (System.nanoTime). */
         long takenAt;
-        /** What the camera said of the frame as it took it, or null. */
-        LineFocus.Capture capture;
+        /** The sensor's timestamp of the frame, to find what the camera said of it (LineFocus.Captures), or 0. */
+        long timestamp;
         /** The frame, with `header` bytes left in front of it. */
         byte[] bytes;
     }
@@ -519,7 +519,7 @@ final class NativeFinder {
                 s.passes = r.runs.length;
                 s.convertMs = convertMs;
                 s.takenAt = taken;
-                s.capture = f.capture;
+                s.timestamp = f.timestamp;
                 synchronized (lock) {
                     // Stopped while it looked: this frame isn't the page's any more.
                     if (mine != loopGen) break;

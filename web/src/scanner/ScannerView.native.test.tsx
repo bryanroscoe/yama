@@ -125,6 +125,7 @@ vi.mock("./nativeCamera", async (original) => {
         setLineFocus: async (on: boolean) => {
           nat.lineSets.push(on);
         },
+        followLine: () => undefined,
         bench: async () => [],
         found: () => (nat.on ? { state: nat.state, quad: nat.state === real.FOUND_CARD ? quadAt(100) : null, vote: 1, ms: 8, passes: 1, ageMs: 3, seq: 41 } : null),
         setFinder: async (o: { on?: boolean; outline?: boolean }) => {

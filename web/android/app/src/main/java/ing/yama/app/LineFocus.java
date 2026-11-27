@@ -74,7 +74,10 @@ final class LineFocus {
     /**
      * How a camera's frame lies on its sensor: the buffer as delivered (`bufferWidth` ×
      * `bufferHeight`), the part of it that is the picture (the crop) and the turn that stands it
-     * upright (ScannerFrames.Frame's), and the sensor's active array (`arrayWidth` × `arrayHeight`).
+     * upright (ScannerFrames.Frame's); the sensor's active array (`arrayWidth` × `arrayHeight`); and
+     * the part of the array the camera's streams are made from, its crop region
+     * (`SCALER_CROP_REGION` as the capture result says it: the whole array where zoom is a zoom
+     * ratio, a smaller part where the camera zooms by cropping), or null for the whole array.
      */
     static final class Geometry {
         final int bufferWidth;
@@ -86,8 +89,14 @@ final class LineFocus {
         final int rotation;
         final int arrayWidth;
         final int arrayHeight;
+        /** Left, top, right, bottom in the array's coordinates, or null. */
+        final int[] scalerCrop;
 
         Geometry(int bufferWidth, int bufferHeight, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation, int arrayWidth, int arrayHeight) {
+            this(bufferWidth, bufferHeight, cropLeft, cropTop, cropWidth, cropHeight, rotation, arrayWidth, arrayHeight, null);
+        }
+
+        Geometry(int bufferWidth, int bufferHeight, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation, int arrayWidth, int arrayHeight, int[] scalerCrop) {
             this.bufferWidth = bufferWidth;
             this.bufferHeight = bufferHeight;
             this.cropLeft = cropLeft;
@@ -97,6 +106,7 @@ final class LineFocus {
             this.rotation = ((rotation % 360) + 360) % 360;
             this.arrayWidth = arrayWidth;
             this.arrayHeight = arrayHeight;
+            this.scalerCrop = scalerCrop != null && scalerCrop.length == 4 && scalerCrop[2] > scalerCrop[0] && scalerCrop[3] > scalerCrop[1] ? scalerCrop : null;
         }
     }
 
@@ -105,12 +115,14 @@ final class LineFocus {
      * a focus region: left, top, right, bottom, from (0, 0) at the active array's top left to its
      * width and height. Null when the geometry is unknown.
      *
-     * <p>Upright to buffer is ScannerFrames.toRgba's turn undone. The buffer is the sensor's view
+     * <p>Upright to buffer is ScannerFrames.toRgba's turn undone. The buffer is the crop region
      * cut to the buffer's shape about its middle (a 16:9 stream from a 4:3 sensor loses a band top
-     * and bottom), as a camera's streams are [read: AOSP, "Output streams, cropping, and zoom"]. A
-     * zoom changes nothing here: with Android 11's zoom ratio a region's coordinates are the zoomed
-     * view's, spanning the whole array as the unzoomed view did [read: the same page, and
-     * CaptureRequest.CONTROL_ZOOM_RATIO], and the frame is that zoomed view too.
+     * and bottom), as a camera's streams are [read: AOSP, "Output streams, cropping, and zoom"].
+     * With Android 11's zoom ratio a region's coordinates are the zoomed view's, spanning the whole
+     * array as the unzoomed view did, and the crop region is the whole array; a camera that zooms by
+     * cropping (Android 10 and before, or one without a zoom ratio) has a smaller crop region, in
+     * the array's own coordinates [read: the same page, CaptureRequest.CONTROL_ZOOM_RATIO and
+     * SCALER_CROP_REGION]. Either way the stream is the crop region (Codex review of #218).
      */
     static int[] sensorRect(double[] box, Geometry g) {
         if (box == null || g == null || g.bufferWidth <= 0 || g.bufferHeight <= 0 || g.cropWidth <= 0 || g.cropHeight <= 0 || g.arrayWidth <= 0 || g.arrayHeight <= 0) return null;
@@ -118,13 +130,17 @@ final class LineFocus {
         double sy0 = Double.POSITIVE_INFINITY;
         double sx1 = Double.NEGATIVE_INFINITY;
         double sy1 = Double.NEGATIVE_INFINITY;
-        // The buffer's part of the sensor: its shape, as big as fits, in the middle.
+        // The buffer's part of the crop region: its shape, as big as fits, in the middle.
+        double baseX = g.scalerCrop == null ? 0 : g.scalerCrop[0];
+        double baseY = g.scalerCrop == null ? 0 : g.scalerCrop[1];
+        double baseW = g.scalerCrop == null ? g.arrayWidth : g.scalerCrop[2] - g.scalerCrop[0];
+        double baseH = g.scalerCrop == null ? g.arrayHeight : g.scalerCrop[3] - g.scalerCrop[1];
         double bufferAspect = g.bufferWidth / (double) g.bufferHeight;
-        double arrayAspect = g.arrayWidth / (double) g.arrayHeight;
-        double coveredW = bufferAspect >= arrayAspect ? g.arrayWidth : g.arrayHeight * bufferAspect;
-        double coveredH = bufferAspect >= arrayAspect ? g.arrayWidth / bufferAspect : g.arrayHeight;
-        double offX = (g.arrayWidth - coveredW) / 2;
-        double offY = (g.arrayHeight - coveredH) / 2;
+        double baseAspect = baseW / baseH;
+        double coveredW = bufferAspect >= baseAspect ? baseW : baseH * bufferAspect;
+        double coveredH = bufferAspect >= baseAspect ? baseW / bufferAspect : baseH;
+        double offX = baseX + (baseW - coveredW) / 2;
+        double offY = baseY + (baseH - coveredH) / 2;
         double[][] corners = { { box[0], box[1] }, { box[2], box[1] }, { box[2], box[3] }, { box[0], box[3] } };
         for (double[] c : corners) {
             double u = c[0];
@@ -171,6 +187,8 @@ final class LineFocus {
         private double[] sent;
         private long sentAt;
         private long seenAt;
+        /** When a card was last seen by anyone telling this (the finder's frames, or the page's hold); 0 before. */
+        private volatile long cardAt;
         /** The region was set or cleared by something else (a rebind, focus set by hand): the next box is sent whatever it is. */
         private volatile boolean forgotten;
 
@@ -183,9 +201,23 @@ final class LineFocus {
 
         private double[] next;
 
+        /** What {@link #decide} returns to clear the region. */
+        static final double[] CLEAR_BOX = new double[0];
+
+        /** {@link #see} and its box in one step: null to keep the region, {@link #CLEAR_BOX} to clear it, else the box to point it at. */
+        synchronized double[] decide(double[] box, long nowMs) {
+            Step step = see(box, nowMs);
+            return step == Step.KEEP ? null : step == Step.CLEAR ? CLEAR_BOX : next;
+        }
+
         /** The box to point focus at after a {@link Step#POINT}. */
-        double[] box() {
+        synchronized double[] box() {
             return next;
+        }
+
+        /** When a card was last seen (ms, the clock `see` is given), or 0. */
+        long cardAt() {
+            return cardAt;
         }
 
         /** Another thread's: forget what was sent, so the next card's region is sent at once. */
@@ -193,8 +225,11 @@ final class LineFocus {
             forgotten = true;
         }
 
-        /** The card's box on this frame (null without one), at `nowMs`. */
-        Step see(double[] box, long nowMs) {
+        /**
+         * The card's box on this frame (null without one), at `nowMs`. Told from the finder's
+         * thread and, while a card is held with the finder at rest, from the main thread.
+         */
+        synchronized Step see(double[] box, long nowMs) {
             if (forgotten) {
                 forgotten = false;
                 sent = null;
@@ -208,6 +243,7 @@ final class LineFocus {
                 return Step.KEEP;
             }
             seenAt = nowMs;
+            cardAt = nowMs;
             if (sent != null && (nowMs - sentAt < MIN_GAP_MS || !moved(sent, box))) return Step.KEEP;
             sent = box;
             sentAt = nowMs;
@@ -237,7 +273,7 @@ final class LineFocus {
         final float diopters;
         /** The exposure's time in nanoseconds, or 0 where it didn't say. */
         final long exposureNs;
-        /** The frame's request pointed autofocus at the card's collector line. */
+        /** The camera focused on a region sent for the card's collector line (as it reports the region it used). */
         final boolean onLine;
 
         Capture(int afState, float diopters, long exposureNs, boolean onLine) {
@@ -267,9 +303,46 @@ final class LineFocus {
     }
 
     /**
+     * How much two boxes (left, top, right, bottom) overlap: their intersection over their union,
+     * 0 to 1. A region the camera reports it used is matched to one sent this way, since a camera
+     * may move or trim a region to what it can do.
+     */
+    static double overlap(int[] a, int[] b) {
+        if (a == null || b == null) return 0;
+        long iw = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+        long ih = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+        long inter = iw * ih;
+        long union = (long) (a[2] - a[0]) * (a[3] - a[1]) + (long) (b[2] - b[0]) * (b[3] - b[1]) - inter;
+        return union <= 0 ? 0 : inter / (double) union;
+    }
+
+    /** Sent regions (left, top, right, bottom) a capture's region is matched against: the last few, since results come a few frames after their requests. */
+    static final class Sent {
+        private static final int SIZE = 6;
+        private final int[][] rects = new int[SIZE][];
+        private int count;
+
+        synchronized void add(int[] rect) {
+            rects[count % SIZE] = rect;
+            count++;
+        }
+
+        /** Whether `reported` is one of the regions sent (overlapping it by half or more). */
+        synchronized boolean has(int[] reported) {
+            if (reported == null) return false;
+            for (int i = 0; i < Math.min(count, SIZE); i++) if (overlap(rects[i], reported) >= 0.5) return true;
+            return false;
+        }
+
+        synchronized void clear() {
+            count = 0;
+            java.util.Arrays.fill(rects, null);
+        }
+    }
+
+    /**
      * The last captures the camera reported, by the sensor's timestamp, so a frame can be matched
-     * with its own. Written on the camera's capture thread, read on the camera thread that keeps
-     * frames.
+     * with its own. Written on the camera's capture thread, read as frames are handed to the page.
      */
     static final class Captures {
         private static final int SIZE = 16;
@@ -284,23 +357,18 @@ final class LineFocus {
         }
 
         /**
-         * The capture of the frame taken at `timestamp`; where it hasn't been reported yet (a frame
-         * can arrive before its result), the newest one before it, else the newest. Null before any.
+         * The capture of the frame taken at `timestamp` (the sensor's), or null where the camera
+         * hasn't reported it or it has gone from the last kept. Never another frame's: a frame at
+         * a change of focus or exposure would be given the other state (Codex review of #218).
+         * Asked as a frame is handed to the page, by when its result has usually come.
          */
-        synchronized Capture at(long timestamp) {
+        synchronized Capture exact(long timestamp) {
             int n = Math.min(count, SIZE);
-            if (n == 0) return null;
-            Capture before = null;
-            long beforeAt = Long.MIN_VALUE;
             for (int i = 0; i < n; i++) {
                 int k = (count - 1 - i) % SIZE;
                 if (at[k] == timestamp) return what[k];
-                if (at[k] < timestamp && at[k] > beforeAt) {
-                    beforeAt = at[k];
-                    before = what[k];
-                }
             }
-            return before != null ? before : what[(count - 1) % SIZE];
+            return null;
         }
 
         synchronized void clear() {
