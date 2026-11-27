@@ -71,6 +71,10 @@ const nat = vi.hoisted(() => ({
   failLens: null as string | null,
   /** What the app's camera says of itself (its lenses, nearest focus): null for nothing. */
   described: null as unknown,
+  /** Focus on the collector line: saved on the device, asked as each camera opened, and each change asked later. */
+  lineFocus: true,
+  openedLine: [] as (boolean | undefined)[],
+  lineSets: [] as boolean[],
 }));
 
 vi.mock("./nativeCamera", async (original) => {
@@ -78,7 +82,7 @@ vi.mock("./nativeCamera", async (original) => {
   return {
     ...real,
     nativeCameraAvailable: () => true,
-    savedNativeCamera: () => ({ on: true, lens: nat.lens, fps: 30, torchLevel: null }),
+    savedNativeCamera: () => ({ on: true, lens: nat.lens, fps: 30, torchLevel: null, exposure: 0, lineFocus: nat.lineFocus }),
     nativeFinderAbility: async () => ({ finder: true }),
     loadNativeFinder: async () => {
       nat.loads += 1;
@@ -101,11 +105,12 @@ vi.mock("./nativeCamera", async (original) => {
       if (nat.embedGone) throw new Error(real.NATIVE_GONE);
       return { data: new Float32Array(4), rows: 1, dim: 4, ms: 6 };
     },
-    openNativeCamera: (el: HTMLCanvasElement, req: { lens: string }) => {
+    openNativeCamera: (el: HTMLCanvasElement, req: { lens: string; lineFocus?: boolean }) => {
       Object.defineProperty(el, "videoWidth", { configurable: true, get: () => 640 });
       Object.defineProperty(el, "videoHeight", { configurable: true, get: () => 1138 });
       const info = { source: "native" as const, width: 2160, height: 3840 };
       nat.opened.push(req.lens);
+      nat.openedLine.push(req.lineFocus);
       return {
         kind: "native" as const,
         ready: nat.failLens === req.lens ? Promise.reject(new Error("that lens wouldn't bind")) : Promise.resolve(info),
@@ -117,6 +122,10 @@ vi.mock("./nativeCamera", async (original) => {
         info: () => info,
         described: () => nat.described,
         setTorchLevel: async () => undefined,
+        setLineFocus: async (on: boolean) => {
+          nat.lineSets.push(on);
+        },
+        followLine: () => undefined,
         bench: async () => [],
         found: () => (nat.on ? { state: nat.state, quad: nat.state === real.FOUND_CARD ? quadAt(100) : null, vote: 1, ms: 8, passes: 1, ageMs: 3, seq: 41 } : null),
         setFinder: async (o: { on?: boolean; outline?: boolean }) => {
@@ -218,7 +227,7 @@ beforeEach(() => {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, finderUnloads: 0, artFails: false, embeds: [], embedGone: false, lens: "auto", opened: [], failLens: null, described: null, stages: {} });
+  Object.assign(nat, { state: 1, loads: 0, failLoad: false, on: false, sets: [], matched: [], identified: 0, order: [], score: 0.93, artLoads: 0, artUnloads: 0, finderUnloads: 0, artFails: false, embeds: [], embedGone: false, lens: "auto", opened: [], failLens: null, described: null, stages: {}, lineFocus: true, openedLine: [], lineSets: [] });
   sent.timings = [];
 });
 afterEach(() => {
@@ -236,6 +245,65 @@ async function until<T>(get: () => T | null | undefined, what: string): Promise<
   }
   throw new Error(`never saw ${what}`);
 }
+
+describe("focusing on the collector line (27 Nov 2026)", () => {
+  it("is asked for as the app's camera opens in a collection scan, and not in a deck or box scan", async () => {
+    act(() => root.render(<ScannerView closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.openedLine.length ? true : null), "the app's camera opened");
+    expect(nat.openedLine).toEqual([true]);
+    act(() => root.unmount());
+    root = createRoot(host);
+    act(() => root.render(<ScannerView identityOnly closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.openedLine.length > 1 ? true : null), "the app's camera opened again");
+    expect(nat.openedLine[1]).toBe(false);
+    // Opened as it was wanted: nothing more to tell the camera.
+    expect(nat.lineSets).toEqual([]);
+  });
+
+  it("is turned off and on again from Scan settings without opening the camera again", async () => {
+    act(() => root.render(<ScannerView closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.openedLine.length ? true : null), "the app's camera opened");
+    await act(async () => (await until(() => document.querySelector<HTMLButtonElement>('button[aria-label="Scan settings"]'), "the gear")).click());
+    const box = await until(() => document.querySelector<HTMLInputElement>("#scan-line-focus"), "the switch");
+    expect(box.checked).toBe(true);
+    await act(async () => box.click());
+    await until(() => (nat.lineSets.length ? true : null), "the camera told");
+    await act(async () => document.querySelector<HTMLInputElement>("#scan-line-focus")!.click());
+    await until(() => (nat.lineSets.length > 1 ? true : null), "the camera told again");
+    expect(nat.lineSets).toEqual([false, true]);
+    expect(nat.openedLine).toEqual([true]);
+  });
+
+  it("isn't asked for where it's turned off on this device", async () => {
+    nat.lineFocus = false;
+    act(() => root.render(<ScannerView closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.openedLine.length ? true : null), "the app's camera opened");
+    expect(nat.openedLine).toEqual([false]);
+  });
+
+  it("says in the timing record whether autofocus followed the line, and why not", async () => {
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    nat.described = { lineFocus: { asked: true, on: false, why: "Only with the lens on Automatic.", moves: 0 } };
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 1 ? true : null), "a frame matched at the app's corners");
+    nat.score = 0.93;
+    await until(() => (sent.timings.length > 0 ? true : null), "a timing record");
+    const d = sent.timings[0]!.detail as Record<string, unknown>;
+    expect(d.line_focus).toBe(false);
+    expect(d.line_focus_why).toBe("Only with the lens on Automatic.");
+  });
+
+  it("says nothing of it in the timing record where it wasn't asked for, or the app doesn't say", async () => {
+    localStorage.setItem("yama.scan.diagnostics", "1");
+    nat.score = 0.2;
+    act(() => root.render(<ScannerView identityOnly autoAdd closeups={false} onAccept={async () => true} />));
+    await until(() => (nat.matched.length >= 1 ? true : null), "a frame matched at the app's corners");
+    nat.score = 0.93;
+    await until(() => (sent.timings.length > 0 ? true : null), "a timing record");
+    expect(Object.keys(sent.timings[0]!.detail as object).filter((k) => k.startsWith("line_focus"))).toEqual([]);
+  });
+});
 
 describe("the card finder in the app's own code", () => {
   it("hands each frame's corners in: the art is matched there and the web view's finder never runs", async () => {

@@ -4,8 +4,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { exposureLabel, exposureText, inUseLine, NativeCameraSetting, RATES } from "./NativeCameraSetting";
-import type { NativeCamera, NativeCameraOption } from "./nativeCamera";
+import { exposureLabel, exposureText, inUseLine, lineFocusNote, NativeCameraSetting, RATES } from "./NativeCameraSetting";
+import type { NativeCamera, NativeCameraOption, NativeDescribed } from "./nativeCamera";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -21,11 +21,36 @@ afterEach(() => {
   host.remove();
 });
 
-const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, torchLevel: null, exposure: 0 };
+const OFF: NativeCameraOption = { on: false, lens: "auto", fps: 30, torchLevel: null, exposure: 0, lineFocus: true };
 
 describe("the capture rates", () => {
   it("are 30 and 60 only: faster ones are high-speed sessions the scanner can't read from", () => {
     expect(RATES).toEqual([30, 60]);
+  });
+});
+
+describe("focusing on the set code and number (27 Nov 2026)", () => {
+  const ON: NativeCameraOption = { on: true, lens: "auto", fps: 30, torchLevel: null, exposure: 0, lineFocus: true };
+  const d = (lineFocus?: NativeDescribed["lineFocus"]) => ({ lenses: [], torchLevels: 0, ...(lineFocus ? { lineFocus } : {}) }) as unknown as NativeDescribed;
+
+  it("is a switch, on by default, and turning it off asks to save that", () => {
+    const changes: NativeCameraOption[] = [];
+    act(() => root.render(<NativeCameraSetting option={ON} onChange={(o) => changes.push(o)} info={null} camera={null} />));
+    const box = host.querySelector<HTMLInputElement>("#scan-line-focus")!;
+    expect(box.checked).toBe(true);
+    expect(host.textContent).toContain("Focus on the set code and number.");
+    act(() => box.click());
+    expect(changes).toEqual([{ ...ON, lineFocus: false }]);
+  });
+
+  it("says why it isn't happening although it's on: an older app, or the camera's reason", () => {
+    expect(lineFocusNote(ON, null)).toBeNull();
+    expect(lineFocusNote({ ...ON, lineFocus: false }, d())).toBeNull();
+    expect(lineFocusNote(ON, d())).toMatch(/next app update/);
+    expect(lineFocusNote(ON, d({ asked: true, on: true, moves: 2 }))).toBeNull();
+    expect(lineFocusNote(ON, d({ asked: true, on: false, why: "Only with the lens on Automatic.", moves: 0 }))).toBe("Not now: only with the lens on Automatic.");
+    // A deck or box scan doesn't ask: nothing to say.
+    expect(lineFocusNote(ON, d({ asked: false, on: false, why: "Only with the lens on Automatic.", moves: 0 }))).toBeNull();
   });
 });
 

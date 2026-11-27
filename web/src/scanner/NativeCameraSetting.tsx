@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Field } from "../components/ui";
 import { clampExposure } from "./camera";
 import type { SourceInfo } from "./cameraSource";
-import { benchLine, DEFAULT_LENS, exposureRange, LENS_NAMES, type BenchRow, type NativeCamera, type NativeCameraOption, type NativeLens } from "./nativeCamera";
+import { benchLine, DEFAULT_LENS, exposureRange, LENS_NAMES, type BenchRow, type NativeCamera, type NativeCameraOption, type NativeDescribed, type NativeLens } from "./nativeCamera";
 
 const LENSES: NativeLens[] = ["auto", "main", "ultrawide", "telephoto"];
 
@@ -38,6 +38,17 @@ export function inUseLine(info: SourceInfo): string {
   if (info.activeLens && info.activeLens !== info.lens) parts.push(`the phone is using its ${(LENS_NAMES[info.activeLens as NativeLens] ?? info.activeLens).toLowerCase()} lens now`);
   if (info.fpsAsked) parts.push(`${info.fpsAsked} a second asked for${info.frameRate ? `, ${Math.round(info.frameRate * 10) / 10} delivered` : ""}`);
   return `In use: ${parts.join(", ")}.`;
+}
+
+/**
+ * Why focusing on the set code and number isn't happening although it's turned on, from what the
+ * app's camera says (LineFocus.java), or null: an older app, another lens, focus held by hand.
+ */
+export function lineFocusNote(option: NativeCameraOption, d: NativeDescribed | null): string | null {
+  if (!option.lineFocus || !d) return null;
+  if (!d.lineFocus) return "This version of the app can't do this yet: it comes with the next app update.";
+  if (d.lineFocus.asked && !d.lineFocus.on && d.lineFocus.why) return `Not now: ${d.lineFocus.why.charAt(0).toLowerCase()}${d.lineFocus.why.slice(1)}`;
+  return null;
 }
 
 export function NativeCameraSetting({
@@ -124,6 +135,7 @@ export function NativeCameraSetting({
   // Where the camera really is, when that isn't the setting: refused as it opened, or lowered by the scanner for a card in glare.
   const cameraEv = d?.exposure?.ev;
   const elsewhere = exposure && evPending == null && typeof cameraEv === "number" && Math.abs(cameraEv - ev) > exposure.step / 2 ? cameraEv : null;
+  const lineNote = lineFocusNote(option, d);
   return (
     <div className="scan-native-camera">
       <div className="scan-keep">
@@ -192,6 +204,16 @@ export function NativeCameraSetting({
             </>
           )}
           {/* Automatic is the default (Bryan, 23 Nov 2026): only it reaches 0.5x for a card the scanner struggles with. */}
+          {/* Bryan, 27 Nov 2026: the set code and number "always looks a little fuzzy. I'm not sure if it's properly focusing on that text". */}
+          <div className="scan-keep">
+            <input id="scan-line-focus" type="checkbox" checked={option.lineFocus} onChange={(e) => onChange({ ...option, lineFocus: e.target.checked })} />
+            <span>
+              <label htmlFor="scan-line-focus">
+                <strong>Focus on the set code and number.</strong> In collection scans the camera keeps focusing on the card's bottom left corner as it moves, rather than on its art.
+              </label>
+            </span>
+          </div>
+          {lineNote && <p className="scan-note">{lineNote}</p>}
           {option.lens === "auto" && <p className="scan-note">Automatic lets the scanner step out to the ultra-wide lens (0.5x) when a card is hard to read, such as a foil in glare. Up close the phone may also switch to it by itself, which softens the picture a little.</p>}
           {option.lens !== "auto" && <p className="scan-note">With one lens chosen, the scanner can't step out to 0.5x when a card is hard to read.</p>}
           {lensFailed && !failed && (

@@ -47,6 +47,8 @@ final class NativeFinder {
         double convertMs;
         /** When the camera delivered it (System.nanoTime). */
         long takenAt;
+        /** The sensor's timestamp of the frame, to find what the camera said of it (LineFocus.Captures), or 0. */
+        long timestamp;
         /** The frame, with `header` bytes left in front of it. */
         byte[] bytes;
     }
@@ -100,6 +102,27 @@ final class NativeFinder {
 
     interface FailureListener {
         void failed(String why);
+    }
+
+    /**
+     * Hears every frame the loop looked at: the card's corners (null without one) in its `w` × `h`
+     * frame, the camera's frame they were found on (the loop's until its next frame), and the loop's
+     * own token (`isLoop` says whether it still runs). On the loop's thread: it must not wait.
+     */
+    interface SeenListener {
+        void seen(double[] quad, int w, int h, ScannerFrames.Frame frame, int loop);
+    }
+
+    /** Whether the loop that gave `loop` to a SeenListener is still the one running: not stopped, nor replaced. */
+    boolean isLoop(int loop) {
+        return running && loop == loopGen;
+    }
+
+    private volatile SeenListener onSeen;
+
+    /** Who hears each frame looked at (ScannerCameraPlugin's focus on the collector line), or nobody. */
+    void onSeen(SeenListener l) {
+        onSeen = l;
     }
 
     // ---- The art read in the app (stage 4) ----
@@ -501,6 +524,7 @@ final class NativeFinder {
                 s.passes = r.runs.length;
                 s.convertMs = convertMs;
                 s.takenAt = taken;
+                s.timestamp = f.timestamp;
                 synchronized (lock) {
                     // Stopped while it looked: this frame isn't the page's any more.
                     if (mine != loopGen) break;
@@ -514,6 +538,8 @@ final class NativeFinder {
                 CardOutlineView o = outline;
                 // (A loop stopped meanwhile draws nothing over the outline its stop cleared.)
                 if (o != null && mine == loopGen) o.see(s.quad, w, h);
+                SeenListener l = onSeen;
+                if (l != null && mine == loopGen) l.seen(s.quad, w, h, f, mine);
             }
         } catch (InterruptedException e) {
             // Stopped.

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyH, rectQuad, squareToQuad, warpRegion } from "./image";
-import { CARD_CHANGE_FRAMES, DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, cardOf, cropTimesNote, deleteDiagnostics, setDiagnosticsOn, stepAppeared, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
+import { CARD_CHANGE_FRAMES, DIAGNOSTICS_KEY, STRIP, SYMBOL, ScanRecord, TimingRecord, captureNote, cardOf, cropTimesNote, deleteDiagnostics, setDiagnosticsOn, stepAppeared, stripQuad, stripSize, symbolOf, symbolSize } from "./diagnostics";
 import { COLLECTOR_REGION, RIGHT_COLLECTOR_REGION } from "./pipeline";
 
 const posted = vi.hoisted(() => ({ bodies: [] as unknown[], hold: null as Promise<void> | null }));
@@ -379,6 +379,23 @@ describe("scanner timing records", () => {
     setDiagnosticsOn(false);
     expect(await new TimingRecord(named).send("filed")).toBe(false);
     expect(posted.bodies).toHaveLength(0);
+  });
+});
+
+describe("what the camera said of a read's frame (27 Nov 2026)", () => {
+  it("is kept with the frame's note where the camera said it, and nothing where it didn't", () => {
+    expect(captureNote(undefined)).toEqual({});
+    expect(captureNote({ af: "passive-focused", line: true, lineAsked: true, focusCm: 21, exposureMs: 16.6 })).toEqual({ af: "passive-focused", afLine: true, afLineAsked: true, focusCm: 21, exposureMs: 16.6 });
+    // Off the line is said too: autofocus was looking elsewhere for that frame.
+    expect(captureNote({ line: false, lineAsked: true, exposureMs: 33.3 })).toEqual({ afLine: false, afLineAsked: true, exposureMs: 33.3 });
+    // The camera didn't say which region it used: unknown, not "off".
+    expect(captureNote({ lineAsked: true })).toEqual({ afLineAsked: true });
+  });
+
+  it("goes into the record with the frame", () => {
+    const rec = new ScanRecord();
+    rec.frame({ source: "hold", reads: ["0042 MKM"], sharpness: 210, ...captureNote({ af: "passive-scan", line: true, lineAsked: true, focusCm: 18, exposureMs: 8 }) });
+    expect(rec.frames[0]).toMatchObject({ source: "hold", af: "passive-scan", afLine: true, afLineAsked: true, focusCm: 18, exposureMs: 8 });
   });
 });
 

@@ -3689,3 +3689,29 @@ cut from the full frame for the line. The camera's stream stays 4K.
   records still show the line slow; it needs an APK and a phone.
 - Web only: no APK, server or model change. Evidence and tables in
   [docs/scanner.md](docs/scanner.md#the-number-sharp-and-sooner-2026-11-25). Not yet checked on a phone.
+
+## Autofocus on the collector line, continuous and unlocked (27 November 2026)
+
+Bryan, 27 Nov 2026: "It really struggles to find that text in the bottom left corner and read it and it
+always looks a little fuzzy. I'm not sure if it's properly focusing on that text. I don't know if you can
+easily make the autofocus focus just on that text".
+
+Decided: in collection scans the Android app's camera moves its autofocus region (Camera2
+`CONTROL_AF_REGIONS`) onto the card's collector corner as the app's card finder sees the card, or as the
+hold finds the card while its sheet is open and the finder rests, mapped to the sensor in native code
+(`LineFocus.java`), and leaves autofocus in its continuous mode: no focus scan, no lens held. Only with the
+lens on Automatic and focus not held by hand; a region nobody keeps up for 6 s lapses; a per-device switch
+in Scan settings turns it off. Each frame reply now carries
+what the camera said of that frame (autofocus state, focus distance, exposure time, whether the region was
+on the line) in its header's four spare bytes, and Scanner diagnostics keep it with each collector-line read.
+
+- Why: the camera's autofocus judged the middle of the picture, the art, and at scanning distance a
+  phone's main lens keeps only millimetres sharp [inferred], so a slightly tilted card's line could be
+  soft while its art was sharp. The earlier way of pointing focus (CameraX's `FocusMeteringAction`, 15 to
+  25 Nov) locked the lens for 5 s and went soft whenever the card moved (25 November 2026, above): a
+  region with continuous autofocus follows the card instead.
+- Not for a lens chosen by itself: which camera's coordinates a phone reads a region in for CameraX's
+  physical camera isn't documented [inferred]. The header's bytes are zero from an older APK, and an older
+  APK ignores the request, so pages and APKs of either age work together.
+- APK and web; no server or model change. Evidence, records to check and what wasn't checked in
+  [docs/scanner.md](docs/scanner.md#focus-on-the-collector-line-2026-11-27). Not yet checked on a phone.

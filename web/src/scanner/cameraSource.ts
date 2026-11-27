@@ -51,6 +51,8 @@ export interface SourceInfo extends CameraInfo {
   /** Native: how frames cross to the page, and what one costs (ms, medians of the last frames). */
   transport?: "binary" | "base64";
   bridge?: BridgeCost;
+  /** Native: autofocus is following the card's collector line (an APK from 27 Nov 2026 on; absent before). */
+  lineFocus?: boolean;
 }
 
 /** What handing one frame from native code to the page costs, in ms. */
@@ -67,6 +69,30 @@ export interface BridgeCost {
   bytes: number;
 }
 
+/** Camera2's autofocus states (CaptureResult.CONTROL_AF_STATE, 0 to 6), as a frame's capture names them. */
+export type AfState = "inactive" | "passive-scan" | "passive-focused" | "active-scan" | "focused-locked" | "not-focused-locked" | "passive-unfocused";
+
+/**
+ * What the camera said of a frame as it took it: the app's camera since 27 Nov 2026 (a browser's
+ * says nothing). Kept with each collector-line read in Scanner diagnostics, so a soft frame can be
+ * told apart: the lens still finding focus, focused somewhere else, or a long exposure (shake).
+ */
+export interface FrameCapture {
+  /** The autofocus state, where it said. */
+  af?: AfState;
+  /**
+   * The camera says it focused on a region sent for the card's collector line (LineFocus.java):
+   * absent where its result didn't say which region it used.
+   */
+  line?: boolean;
+  /** The frame's request asked for the line's region. */
+  lineAsked: boolean;
+  /** Where the lens was focused, in whole centimetres (255: that or further), where it said. */
+  focusCm?: number;
+  /** The exposure's time in ms (to a tenth), where it said. */
+  exposureMs?: number;
+}
+
 export interface CameraSource {
   readonly kind: "browser" | "native";
   /** The frame to read now, or null before the camera has one. */
@@ -77,9 +103,10 @@ export interface CameraSource {
    * The part of the frame around a card (its quad in frame pixels) at the camera's full
    * resolution, its longest side at most `maxSide`, and the quad within it. With `part`, only
    * around that part of the card (LINE_PART: where the collector line is read); the quad is still
-   * the whole card's, its far corners then outside the image.
+   * the whole card's, its far corners then outside the image. The app's camera also says what it
+   * knew of the frame as it took it (`capture`).
    */
-  around(quad: Quad, canvas: HTMLCanvasElement, maxSide?: number, part?: CardRegion): Promise<{ image: RgbaImage; quad: Quad }>;
+  around(quad: Quad, canvas: HTMLCanvasElement, maxSide?: number, part?: CardRegion): Promise<{ image: RgbaImage; quad: Quad; capture?: FrameCapture }>;
   /** A box of the frame, drawn `w` × `h` from the camera's full resolution. */
   region(box: FrameBox, w: number, h: number, canvas: HTMLCanvasElement): Promise<RgbaImage>;
   /** The camera's controls and capabilities, as a track. */
