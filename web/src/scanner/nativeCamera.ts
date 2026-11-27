@@ -195,17 +195,25 @@ export const AF_STATES: readonly AfState[] = ["inactive", "passive-scan", "passi
 
 /**
  * What the camera said of a frame, from a reply header's last four bytes (LineFocus.pack, little
- * endian): the autofocus state plus one with the top bit for "on the line", the focus distance in
- * centimetres, the exposure in tenths of a millisecond; 0 in each for unknown. Undefined when all
- * are zero, as an APK from before 27 Nov 2026 sends.
+ * endian). The first: the autofocus state plus one in its low three bits, 0x20 when the camera
+ * reported the region it used, 0x40 when the request asked for the line's region, 0x80 when the
+ * region it reported was the line's. Then the focus distance in centimetres and the exposure in
+ * tenths of a millisecond; 0 in each for unknown. Undefined when all are zero, as an APK from
+ * before 27 Nov 2026 sends.
  */
 export function captureOf(packed: number | undefined): FrameCapture | undefined {
   const p = (packed ?? 0) >>> 0;
   if (!p) return undefined;
-  const af = AF_STATES[(p & 0x7f) - 1];
+  const af = AF_STATES[(p & 0x07) - 1];
   const cm = (p >>> 8) & 0xff;
   const tenths = (p >>> 16) & 0xffff;
-  return { line: (p & 0x80) !== 0, ...(af ? { af } : {}), ...(cm ? { focusCm: cm } : {}), ...(tenths ? { exposureMs: tenths / 10 } : {}) };
+  return {
+    ...((p & 0x20) !== 0 ? { line: (p & 0x80) !== 0 } : {}),
+    lineAsked: (p & 0x40) !== 0,
+    ...(af ? { af } : {}),
+    ...(cm ? { focusCm: cm } : {}),
+    ...(tenths ? { exposureMs: tenths / 10 } : {}),
+  };
 }
 
 /**

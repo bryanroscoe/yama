@@ -181,7 +181,10 @@ final class LineFocus {
     /**
      * Decides, frame by frame, when the focus region follows the card: once a card is seen, again
      * when it has moved by a good part of the region (never more than every {@link #MIN_GAP_MS}),
-     * and cleared once no card has been seen for {@link #GONE_MS}. The finder's thread's own.
+     * and cleared once no card has been seen for {@link #GONE_MS}. Given the region's place on the
+     * sensor, so a change in how frames lie on it (the phone turned, a cropping zoom) counts as a
+     * move. The main thread's alone, and told only what will be done: what it remembers as sent is
+     * what the camera was asked for (Codex re-check of #218).
      */
     static final class Follower {
         private double[] sent;
@@ -225,10 +228,7 @@ final class LineFocus {
             forgotten = true;
         }
 
-        /**
-         * The card's box on this frame (null without one), at `nowMs`. Told from the finder's
-         * thread and, while a card is held with the finder at rest, from the main thread.
-         */
+        /** The card's box on this frame (null without one), at `nowMs`. */
         synchronized Step see(double[] box, long nowMs) {
             if (forgotten) {
                 forgotten = false;
@@ -273,27 +273,42 @@ final class LineFocus {
         final float diopters;
         /** The exposure's time in nanoseconds, or 0 where it didn't say. */
         final long exposureNs;
-        /** The camera focused on a region sent for the card's collector line (as it reports the region it used). */
-        final boolean onLine;
+        /**
+         * The camera says it focused on a region sent for the card's collector line (the region its
+         * result reports it used), or null where its result doesn't report the region it used.
+         */
+        final Boolean onLine;
+        /** The frame's request asked for a region sent for the line. */
+        final boolean askedOnLine;
+        /** The crop region the result says (left, top, right, bottom), or null. */
+        final int[] crop;
 
         Capture(int afState, float diopters, long exposureNs, boolean onLine) {
+            this(afState, diopters, exposureNs, onLine, onLine, null);
+        }
+
+        Capture(int afState, float diopters, long exposureNs, Boolean onLine, boolean askedOnLine, int[] crop) {
             this.afState = afState;
             this.diopters = diopters;
             this.exposureNs = exposureNs;
             this.onLine = onLine;
+            this.askedOnLine = askedOnLine;
+            this.crop = crop;
         }
     }
 
     /**
      * A capture as the frame reply's last four header bytes carry it (ScannerCameraPlugin.HEADER,
-     * nativeCamera.ts `captureOf`), little-endian: the autofocus state plus one (0 where unknown) with
-     * the top bit set when the region was on the line; the focus distance in whole centimetres (0
-     * unknown, 255 for 255 cm or more, infinity included); the exposure in tenths of a millisecond
-     * (0 unknown). All zero for no capture, which is what an APK before 27 Nov 2026 sends.
+     * nativeCamera.ts `captureOf`), little-endian. The first byte: the autofocus state plus one in
+     * its low three bits (0 where unknown), 0x20 when the camera reported the region it used, 0x40
+     * when the request asked for the line's region, 0x80 when the region it reported was the
+     * line's. Then the focus distance in whole centimetres (0 unknown, 255 for 255 cm or more,
+     * infinity included), and the exposure in tenths of a millisecond (0 unknown). All zero for no
+     * capture, which is what an APK before 27 Nov 2026 sends.
      */
     static int pack(Capture c) {
         if (c == null) return 0;
-        int af = (c.afState >= 0 && c.afState < 127 ? c.afState + 1 : 0) | (c.onLine ? 0x80 : 0);
+        int af = (c.afState >= 0 && c.afState <= 6 ? c.afState + 1 : 0) | (c.onLine != null ? 0x20 : 0) | (c.askedOnLine ? 0x40 : 0) | (Boolean.TRUE.equals(c.onLine) ? 0x80 : 0);
         int cm;
         if (!(c.diopters >= 0) || Float.isInfinite(c.diopters)) cm = 0;
         else if (c.diopters == 0) cm = 255;
@@ -316,21 +331,42 @@ final class LineFocus {
         return union <= 0 ? 0 : inter / (double) union;
     }
 
-    /** Sent regions (left, top, right, bottom) a capture's region is matched against: the last few, since results come a few frames after their requests. */
+    /**
+     * The regions sent (left, top, right, bottom) a capture's region is matched against: the one in
+     * force, and those it replaced in the last {@link #KEEP_MS}, since a result comes a few frames
+     * after its request. Not older ones: a card gone long ago left its region behind it (Codex
+     * re-check of #218). Written on the main thread, read on the camera's capture thread.
+     */
     static final class Sent {
+        static final long KEEP_MS = 700;
         private static final int SIZE = 6;
         private final int[][] rects = new int[SIZE][];
+        /** When each was replaced or cleared (ms), or -1 for the one in force. */
+        private final long[] endedAt = new long[SIZE];
         private int count;
 
-        synchronized void add(int[] rect) {
+        /** `rect` is in force from `nowMs`, replacing the one before. */
+        synchronized void add(int[] rect, long nowMs) {
+            end(nowMs);
             rects[count % SIZE] = rect;
+            endedAt[count % SIZE] = -1;
             count++;
         }
 
-        /** Whether `reported` is one of the regions sent (overlapping it by half or more). */
-        synchronized boolean has(int[] reported) {
+        /** No region is in force from `nowMs`. */
+        synchronized void end(long nowMs) {
+            if (count == 0) return;
+            int k = (count - 1) % SIZE;
+            if (endedAt[k] < 0) endedAt[k] = nowMs;
+        }
+
+        /** Whether `reported` is the region in force or one ended in the last {@link #KEEP_MS} (overlapping it by half or more). */
+        synchronized boolean has(int[] reported, long nowMs) {
             if (reported == null) return false;
-            for (int i = 0; i < Math.min(count, SIZE); i++) if (overlap(rects[i], reported) >= 0.5) return true;
+            for (int i = 0; i < Math.min(count, SIZE); i++) {
+                if (rects[i] == null || (endedAt[i] >= 0 && nowMs - endedAt[i] > KEEP_MS)) continue;
+                if (overlap(rects[i], reported) >= 0.5) return true;
+            }
             return false;
         }
 

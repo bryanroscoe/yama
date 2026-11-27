@@ -107,19 +107,22 @@ export interface FrameNote {
   cutMs?: number;
   /**
    * What the camera said of the frame the read was cut from (the app's camera since 27 Nov 2026,
-   * cameraSource.ts `FrameCapture`): its autofocus state, whether autofocus was on the collector
-   * line, where the lens was focused (cm; 255 is that or further) and the exposure's time (ms).
+   * cameraSource.ts `FrameCapture`): its autofocus state, whether the camera says autofocus was on
+   * the collector line (absent where it didn't say which region it used) and whether the line's
+   * region was asked for, where the lens was focused (cm; 255 is that or further) and the
+   * exposure's time (ms).
    */
   af?: AfState;
   afLine?: boolean;
+  afLineAsked?: boolean;
   focusCm?: number;
   exposureMs?: number;
 }
 
 /** What the camera said of a read's frame, as a frame note keeps it (`af`, `afLine`, `focusCm`, `exposureMs`). */
-export function captureNote(c: FrameCapture | undefined): Pick<FrameNote, "af" | "afLine" | "focusCm" | "exposureMs"> {
+export function captureNote(c: FrameCapture | undefined): Pick<FrameNote, "af" | "afLine" | "afLineAsked" | "focusCm" | "exposureMs"> {
   if (!c) return {};
-  return { ...(c.af ? { af: c.af } : {}), afLine: c.line, ...(c.focusCm != null ? { focusCm: c.focusCm } : {}), ...(c.exposureMs != null ? { exposureMs: c.exposureMs } : {}) };
+  return { ...(c.af ? { af: c.af } : {}), ...(c.line != null ? { afLine: c.line } : {}), afLineAsked: c.lineAsked, ...(c.focusCm != null ? { focusCm: c.focusCm } : {}), ...(c.exposureMs != null ? { exposureMs: c.exposureMs } : {}) };
 }
 
 /** Each crop's time, rounded, as a frame note keeps it (`ocrMs`, and `engineMs` where the engine says). */

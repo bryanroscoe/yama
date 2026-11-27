@@ -80,8 +80,13 @@ export type AfState = "inactive" | "passive-scan" | "passive-focused" | "active-
 export interface FrameCapture {
   /** The autofocus state, where it said. */
   af?: AfState;
-  /** Autofocus was pointed at the card's collector line for this frame (LineFocus.java). */
-  line: boolean;
+  /**
+   * The camera says it focused on a region sent for the card's collector line (LineFocus.java):
+   * absent where its result didn't say which region it used.
+   */
+  line?: boolean;
+  /** The frame's request asked for the line's region. */
+  lineAsked: boolean;
   /** Where the lens was focused, in whole centimetres (255: that or further), where it said. */
   focusCm?: number;
   /** The exposure's time in ms (to a tenth), where it said. */

@@ -238,28 +238,30 @@ describe("focusing on the collector line (27 Nov 2026)", () => {
   });
 
   it("reads what the camera said of a frame from the header's last four bytes", () => {
-    // Focused on its own (2, plus one), on the line (top bit); 20 cm; 33.3 ms (333 tenths).
-    expect(captureOf(0x83 | (20 << 8) | (333 << 16))).toEqual({ af: "passive-focused", line: true, focusCm: 20, exposureMs: 33.3 });
-    // Still finding focus, not on the line, distance unknown.
-    expect(captureOf(2 | (0 << 8) | (85 << 16))).toEqual({ af: "passive-scan", line: false, exposureMs: 8.5 });
+    // Focused on its own (2, plus one); the line's region asked for (0x40) and reported used (0x20, 0x80); 20 cm; 33.3 ms (333 tenths).
+    expect(captureOf(0xe3 | (20 << 8) | (333 << 16))).toEqual({ af: "passive-focused", line: true, lineAsked: true, focusCm: 20, exposureMs: 33.3 });
+    // Still finding focus; asked for, but the camera reports another region; distance unknown.
+    expect(captureOf(0x62 | (0 << 8) | (85 << 16))).toEqual({ af: "passive-scan", line: false, lineAsked: true, exposureMs: 8.5 });
+    // Asked for, the camera saying nothing of the region it used: unknown, not "off".
+    expect(captureOf(0x43 | (85 << 16))).toEqual({ af: "passive-focused", lineAsked: true, exposureMs: 8.5 });
     // As far as can be said, the longest exposure (the top bits set: a negative int in Java).
-    expect(captureOf((255 << 8) | (65535 << 16))).toEqual({ line: false, focusCm: 255, exposureMs: 6553.5 });
-    expect(captureOf(((255 << 8) | (65535 << 16)) | 0)).toEqual({ line: false, focusCm: 255, exposureMs: 6553.5 });
+    expect(captureOf((255 << 8) | (65535 << 16))).toEqual({ lineAsked: false, focusCm: 255, exposureMs: 6553.5 });
     // Nothing said (an APK before it), or an autofocus state it doesn't know.
     expect(captureOf(0)).toBeUndefined();
     expect(captureOf(undefined)).toBeUndefined();
-    expect(captureOf(0x7f)).toEqual({ line: false });
+    expect(captureOf(0x10)).toEqual({ lineAsked: false });
   });
 
   it("comes with a binary reply, and not from an older APK", () => {
-    expect(parseReply(reply({ id: 1, width: 1, height: 1, capture: 3 | (25 << 8) | (100 << 16) })).frame!.capture).toEqual({ af: "passive-focused", line: false, focusCm: 25, exposureMs: 10 });
+    expect(parseReply(reply({ id: 1, width: 1, height: 1, capture: 0x23 | (25 << 8) | (100 << 16) })).frame!.capture).toEqual({ af: "passive-focused", line: false, lineAsked: false, focusCm: 25, exposureMs: 10 });
     expect(parseReply(reply({ id: 1, width: 1, height: 1 })).frame!.capture).toBeUndefined();
   });
 
   it("comes with a base64 frame", async () => {
     const { plugin } = fakes();
-    const t = base64Transport({ ...plugin, region: async () => ({ ...(await plugin.region({ op: "region" })), capture: 0x83 | (19 << 8) | (200 << 16) }) });
-    expect((await t.request({ op: "region" })).capture).toEqual({ af: "passive-focused", line: true, focusCm: 19, exposureMs: 20 });
+    // As a signed Java int: the exposure's top bit set.
+    const t = base64Transport({ ...plugin, region: async () => ({ ...(await plugin.region({ op: "region" })), capture: (0xe3 | (19 << 8) | (40000 << 16)) | 0 }) });
+    expect((await t.request({ op: "region" })).capture).toEqual({ af: "passive-focused", line: true, lineAsked: true, focusCm: 19, exposureMs: 4000 });
   });
 
   it("is asked for as the camera opens, turned on and off later, and said in what it delivers", async () => {
@@ -315,11 +317,11 @@ describe("focusing on the collector line (27 Nov 2026)", () => {
   });
 
   it("gives a card's cut what the camera said of its frame", async () => {
-    const { plugin, channel } = fakes(DESCRIBED, { capture: 0x83 | (21 << 8) | (166 << 16) });
+    const { plugin, channel } = fakes(DESCRIBED, { capture: 0xe3 | (21 << 8) | (166 << 16) });
     const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160 }, { plugin, channel, settleMs: 0 });
     await cam.ready;
     const cut = await cam.around(quad, document.createElement("canvas"), 2400);
-    expect(cut.capture).toEqual({ af: "passive-focused", line: true, focusCm: 21, exposureMs: 16.6 });
+    expect(cut.capture).toEqual({ af: "passive-focused", line: true, lineAsked: true, focusCm: 21, exposureMs: 16.6 });
     cam.close();
   });
 });

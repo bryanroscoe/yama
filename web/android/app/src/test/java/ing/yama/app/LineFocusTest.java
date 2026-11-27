@@ -134,22 +134,28 @@ public class LineFocusTest {
 
     @Test
     public void aCaptureFitsInTheHeadersLastFourBytes() {
-        // Focused on its own (2), 20 cm away (5 dioptres), 33.3 ms, on the line.
-        int p = LineFocus.pack(new LineFocus.Capture(2, 5f, 33_300_000L, true));
-        assertEquals(0x83, p & 0xff);
+        // Focused on its own (2), 20 cm away (5 dioptres), 33.3 ms; the line's region asked for
+        // and reported used.
+        int p = LineFocus.pack(new LineFocus.Capture(2, 5f, 33_300_000L, Boolean.TRUE, true, null));
+        assertEquals(3 | 0x20 | 0x40 | 0x80, p & 0xff);
         assertEquals(20, (p >> 8) & 0xff);
         assertEquals(333, (p >>> 16) & 0xffff);
+        // Asked for, but the camera reports another region; asked for, and its result says nothing of the region used.
+        assertEquals(3 | 0x20 | 0x40, LineFocus.pack(new LineFocus.Capture(2, 5f, 1, Boolean.FALSE, true, null)) & 0xff);
+        assertEquals(3 | 0x40, LineFocus.pack(new LineFocus.Capture(2, 5f, 1, null, true, null)) & 0xff);
         assertEquals(0, LineFocus.pack(null));
         // Unknown everything.
-        assertEquals(0, LineFocus.pack(new LineFocus.Capture(-1, -1, 0, false)));
+        assertEquals(0, LineFocus.pack(new LineFocus.Capture(-1, -1, 0, null, false, null)));
+        // An autofocus state Camera2 doesn't have is unknown, and never spills into the flags.
+        assertEquals(0, LineFocus.pack(new LineFocus.Capture(7, -1, 0, null, false, null)) & 0xff);
         // Infinity, and further than 2.55 m.
-        assertEquals(255, (LineFocus.pack(new LineFocus.Capture(-1, 0f, 0, false)) >> 8) & 0xff);
-        assertEquals(255, (LineFocus.pack(new LineFocus.Capture(-1, 0.2f, 0, false)) >> 8) & 0xff);
+        assertEquals(255, (LineFocus.pack(new LineFocus.Capture(-1, 0f, 0, null, false, null)) >> 8) & 0xff);
+        assertEquals(255, (LineFocus.pack(new LineFocus.Capture(-1, 0.2f, 0, null, false, null)) >> 8) & 0xff);
         // As near as can be said, and the longest exposure.
-        assertEquals(1, (LineFocus.pack(new LineFocus.Capture(-1, 400f, 0, false)) >> 8) & 0xff);
-        assertEquals(65535, LineFocus.pack(new LineFocus.Capture(-1, -1, 60_000_000_000L, false)) >>> 16);
+        assertEquals(1, (LineFocus.pack(new LineFocus.Capture(-1, 400f, 0, null, false, null)) >> 8) & 0xff);
+        assertEquals(65535, LineFocus.pack(new LineFocus.Capture(-1, -1, 60_000_000_000L, null, false, null)) >>> 16);
         // A very short exposure still says it was known.
-        assertEquals(1, LineFocus.pack(new LineFocus.Capture(-1, -1, 10_000L, false)) >>> 16);
+        assertEquals(1, LineFocus.pack(new LineFocus.Capture(-1, -1, 10_000L, null, false, null)) >>> 16);
     }
 
     @Test
@@ -200,17 +206,28 @@ public class LineFocusTest {
         assertEquals(50.0 / 150, LineFocus.overlap(new int[] { 0, 0, 10, 10 }, new int[] { 5, 0, 15, 10 }), EPS);
         assertEquals(0, LineFocus.overlap(null, new int[] { 0, 0, 1, 1 }), EPS);
         LineFocus.Sent sent = new LineFocus.Sent();
-        assertEquals(false, sent.has(new int[] { 0, 0, 10, 10 }));
-        sent.add(new int[] { 100, 100, 200, 200 });
-        // Trimmed a little by the camera: still the one sent.
-        assertEquals(true, sent.has(new int[] { 104, 100, 200, 196 }));
-        assertEquals(false, sent.has(new int[] { 0, 0, 1000, 1000 }));
-        assertEquals(false, sent.has(null));
-        // Only the last few are kept.
-        for (int i = 0; i < 6; i++) sent.add(new int[] { i, i, i + 1, i + 1 });
-        assertEquals(false, sent.has(new int[] { 100, 100, 200, 200 }));
+        assertEquals(false, sent.has(new int[] { 0, 0, 10, 10 }, 0));
+        int[] a = { 100, 100, 200, 200 };
+        sent.add(a, 1000);
+        // Trimmed a little by the camera: still the one sent, however long it stays in force.
+        assertEquals(true, sent.has(new int[] { 104, 100, 200, 196 }, 60_000));
+        assertEquals(false, sent.has(new int[] { 0, 0, 1000, 1000 }, 1000));
+        assertEquals(false, sent.has(null, 1000));
+        // Replaced: a late result for it still counts for a moment, then not (another card's, by then).
+        sent.add(new int[] { 300, 300, 400, 400 }, 2000);
+        assertEquals(true, sent.has(a, 2000 + LineFocus.Sent.KEEP_MS));
+        assertEquals(false, sent.has(a, 2001 + LineFocus.Sent.KEEP_MS));
+        assertEquals(true, sent.has(new int[] { 300, 300, 400, 400 }, 9000));
+        // Cleared: the same.
+        sent.end(10_000);
+        assertEquals(true, sent.has(new int[] { 300, 300, 400, 400 }, 10_500));
+        assertEquals(false, sent.has(new int[] { 300, 300, 400, 400 }, 10_800));
+        // Only the last few are kept at all.
+        for (int i = 0; i < 6; i++) sent.add(new int[] { i, i, i + 1, i + 1 }, 20_000);
+        assertEquals(false, sent.has(new int[] { 300, 300, 400, 400 }, 20_000));
+        assertEquals(true, sent.has(new int[] { 5, 5, 6, 6 }, 20_000));
         sent.clear();
-        assertEquals(false, sent.has(new int[] { 5, 5, 6, 6 }));
+        assertEquals(false, sent.has(new int[] { 5, 5, 6, 6 }, 20_000));
     }
 
     @Test

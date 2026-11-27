@@ -385,15 +385,17 @@ describe("scanner timing records", () => {
 describe("what the camera said of a read's frame (27 Nov 2026)", () => {
   it("is kept with the frame's note where the camera said it, and nothing where it didn't", () => {
     expect(captureNote(undefined)).toEqual({});
-    expect(captureNote({ af: "passive-focused", line: true, focusCm: 21, exposureMs: 16.6 })).toEqual({ af: "passive-focused", afLine: true, focusCm: 21, exposureMs: 16.6 });
+    expect(captureNote({ af: "passive-focused", line: true, lineAsked: true, focusCm: 21, exposureMs: 16.6 })).toEqual({ af: "passive-focused", afLine: true, afLineAsked: true, focusCm: 21, exposureMs: 16.6 });
     // Off the line is said too: autofocus was looking elsewhere for that frame.
-    expect(captureNote({ line: false, exposureMs: 33.3 })).toEqual({ afLine: false, exposureMs: 33.3 });
+    expect(captureNote({ line: false, lineAsked: true, exposureMs: 33.3 })).toEqual({ afLine: false, afLineAsked: true, exposureMs: 33.3 });
+    // The camera didn't say which region it used: unknown, not "off".
+    expect(captureNote({ lineAsked: true })).toEqual({ afLineAsked: true });
   });
 
   it("goes into the record with the frame", () => {
     const rec = new ScanRecord();
-    rec.frame({ source: "hold", reads: ["0042 MKM"], sharpness: 210, ...captureNote({ af: "passive-scan", line: true, focusCm: 18, exposureMs: 8 }) });
-    expect(rec.frames[0]).toMatchObject({ source: "hold", af: "passive-scan", afLine: true, focusCm: 18, exposureMs: 8 });
+    rec.frame({ source: "hold", reads: ["0042 MKM"], sharpness: 210, ...captureNote({ af: "passive-scan", line: true, lineAsked: true, focusCm: 18, exposureMs: 8 }) });
+    expect(rec.frames[0]).toMatchObject({ source: "hold", af: "passive-scan", afLine: true, afLineAsked: true, focusCm: 18, exposureMs: 8 });
   });
 });
 

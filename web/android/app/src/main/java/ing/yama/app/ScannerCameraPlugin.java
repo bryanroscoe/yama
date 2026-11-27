@@ -181,7 +181,7 @@ public class ScannerCameraPlugin extends Plugin {
 
     /** The page asked for autofocus to look at the collector line of the card the finder sees (`lineFocus`, as the camera opens or later). */
     private volatile boolean lineFocusAsked;
-    /** The finder's thread's: when the focus region follows the card. */
+    /** The main thread's: when the focus region follows the card. */
     private final LineFocus.Follower follower = new LineFocus.Follower();
     /** What the camera said of each of the last frames, matched to frames as they're kept. */
     private final LineFocus.Captures captures = new LineFocus.Captures();
@@ -192,21 +192,24 @@ public class ScannerCameraPlugin extends Plugin {
     /** How many times the region was moved for this camera. */
     private volatile int lineMoves;
     /**
-     * Counts every forgetting of the region (a rebind, focus changed or held, the line turned off,
-     * the region gone stale): a region worked out on the finder's thread before one is dropped when
-     * it reaches the main thread (Codex review of #218).
+     * Counts the finder's runs (each start and stop, and each camera): a card seen by a run since
+     * stopped is dropped when it reaches the main thread, so it can't move or clear a region the
+     * held card's frames have put in place since (Codex re-check of #218).
      */
-    private volatile int lineGen;
+    private volatile int finderRun;
     /** The regions sent last, which a capture's reported region is matched against (`afLine`). */
     private final LineFocus.Sent sentRects = new LineFocus.Sent();
     /** The camera's crop region as its last capture result said (left, top, right, bottom), or null. */
     private volatile int[] scalerCrop;
     /** The camera thread's: the newest frame's buffer size, crop and turn, for a card the page holds (`followPage`). */
     private volatile int[] frameShape;
+    /** How long a settings call's camera write holds region moves back at most, should the camera never say it settled. */
+    static final long INTEROP_WAIT_MS = 1500;
     /**
      * The main thread's: settings calls' `Camera2CameraControl` writes still settling for this
-     * binding. A region isn't moved meanwhile: a newer write would cancel the one a settings call
-     * waits on, and the call would say the camera refused it (Codex review of #218).
+     * binding (each for {@link #INTEROP_WAIT_MS} at most). A region isn't moved meanwhile: a newer
+     * write would cancel the one a settings call waits on, and the call would say the camera
+     * refused it (Codex review of #218).
      */
     private int interopWrites;
     /**
@@ -515,6 +518,7 @@ public class ScannerCameraPlugin extends Plugin {
                     if (outlineView != null) outlineView.show(outline);
                 }
                 if (reset) finder.resetTracking();
+                if (on != null) finderRun++;
                 if (Boolean.TRUE.equals(on)) {
                     if (camera == null) throw new IllegalStateException("The camera isn't open");
                     // One that failed stays stopped: the status says why, and the page's own finder runs.
@@ -877,6 +881,7 @@ public class ScannerCameraPlugin extends Plugin {
         frameShape = null;
         interopWrites = 0;
         pointStarted = false;
+        finderRun++;
 
         CameraSelector.Builder chosenCamera = new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK);
         if (o.physicalId != null) chosenCamera.setPhysicalCameraId(o.physicalId);
@@ -1289,76 +1294,70 @@ public class ScannerCameraPlugin extends Plugin {
     static final long STALE_MS = 3000;
 
     /**
-     * The finder's thread, after each frame: move the camera's focus region with the card it sees,
-     * to the card's collector line, where the page asked (LineFocus). Never waits: the region is
-     * set on the main thread, as every other setting is.
+     * The finder's thread, after each frame: where the card it sees puts the focus region on the
+     * sensor, worked out from this frame's own geometry, handed to the main thread, which alone
+     * decides whether the region moves (LineFocus). Never waits.
      */
     private void lineSeen(double[] quad, int w, int h, ScannerFrames.Frame f) {
         Opened o = opened;
-        if (!lineFocusAsked || o == null || lineFocusWhy(o) != null) return;
-        int gen = lineGen;
-        double[] to = follower.decide(quad == null ? null : LineFocus.uprightBox(quad, w, h), SystemClock.elapsedRealtime());
-        if (to == null) return;
-        if (to == LineFocus.Follower.CLEAR_BOX) {
-            main.post(() -> pointLine(o, gen, null, null));
-            return;
+        if (!lineFocusAsked || o == null) return;
+        int run = finderRun;
+        double[] box = quad == null ? null : LineFocus.uprightBox(quad, w, h);
+        int[] rect = null;
+        if (box != null) {
+            LineFocus.Capture c = captures.exact(f.timestamp);
+            rect = LineFocus.sensorRect(box, geometry(o, f.bufferWidth, f.bufferHeight, f.cropLeft, f.cropTop, f.cropWidth, f.cropHeight, f.rotation, c != null && c.crop != null ? c.crop : scalerCrop));
+            // A card whose place on the sensor isn't known: this frame says nothing.
+            if (rect == null) return;
         }
-        int[] rect = LineFocus.sensorRect(to, geometry(o, f.bufferWidth, f.bufferHeight, f.cropLeft, f.cropTop, f.cropWidth, f.cropHeight, f.rotation));
-        if (rect == null) {
-            // The frame's place on the sensor isn't known: nothing is sent, and the next frame tries again.
-            follower.forget();
-            return;
-        }
-        main.post(() -> pointLine(o, gen, rect, to));
+        double[] at = box;
+        int[] to = rect;
+        main.post(() -> considerLine(o, run, at, to));
     }
 
     /**
      * The main thread: the card held while its sheet is open, its corners (x0, y0, …, top left as
      * printed first) as shares of the upright frame, as the page found it. The app's finder rests
      * then, and the held card's frames are the ones the collector line is read from (Codex review
-     * of #218): the region follows it as it would follow the finder's card.
+     * of #218): the region follows it as it follows the finder's card. Mapped with the newest
+     * frame's geometry: the turn or crop changing between the page's frame and that one moves the
+     * region on the sensor, which the next frame's corners then put right.
      */
     private void followPage(JSArray held) {
         Opened o = opened;
         int[] shape = frameShape;
-        if (!lineFocusAsked || o == null || shape == null || lineFocusWhy(o) != null || held.length() < 8) return;
+        if (!lineFocusAsked || o == null || shape == null || held.length() < 8) return;
         double[] quad = new double[8];
         for (int i = 0; i < 8; i++) quad[i] = held.optDouble(i, Double.NaN);
-        double[] to = follower.decide(LineFocus.uprightBox(quad, 1, 1), SystemClock.elapsedRealtime());
-        if (to == null) return;
-        if (to == LineFocus.Follower.CLEAR_BOX) {
-            pointLine(o, lineGen, null, null);
-            return;
-        }
-        int[] rect = LineFocus.sensorRect(to, geometry(o, shape[0], shape[1], shape[2], shape[3], shape[4], shape[5], shape[6]));
-        if (rect == null) {
-            follower.forget();
-            return;
-        }
-        pointLine(o, lineGen, rect, to);
+        double[] box = LineFocus.uprightBox(quad, 1, 1);
+        if (box == null) return;
+        int[] rect = LineFocus.sensorRect(box, geometry(o, shape[0], shape[1], shape[2], shape[3], shape[4], shape[5], shape[6], scalerCrop));
+        if (rect == null) return;
+        considerLine(o, -1, box, rect);
     }
 
-    private LineFocus.Geometry geometry(Opened o, int bufferWidth, int bufferHeight, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation) {
-        return new LineFocus.Geometry(bufferWidth, bufferHeight, cropLeft, cropTop, cropWidth, cropHeight, rotation, o.arrayWidth, o.arrayHeight, scalerCrop);
+    private static LineFocus.Geometry geometry(Opened o, int bufferWidth, int bufferHeight, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation, int[] crop) {
+        return new LineFocus.Geometry(bufferWidth, bufferHeight, cropLeft, cropTop, cropWidth, cropHeight, rotation, o.arrayWidth, o.arrayHeight, crop);
     }
 
     /**
-     * The main thread: point autofocus at `rect` (the sensor's coordinates), keeping it in its
-     * continuous mode, or clear the region (null). Only for the camera `o` still open, the region
-     * not forgotten since it was worked out (`gen`), focus its own and the line still asked for.
+     * The main thread: a frame's card (its upright box and the region it puts on the sensor), or
+     * none (null), from the finder's run `run` or the page's held card (-1). Every decision and
+     * camera write happens here, and the follower is told only what is done: a frame the camera
+     * can't take now (closed, focus held, a settings write settling, a finder run since stopped)
+     * changes nothing, and the next frame tries again.
      */
-    private void pointLine(Opened o, int gen, int[] rect, double[] box) {
-        if (camera == null || opened != o || gen != lineGen || !lineFocusAsked || !"continuous".equals(focusMode)) return;
-        if (interopWrites > 0) {
-            // A settings change is settling: the next frame sends the region again.
-            follower.forget();
-            return;
-        }
+    private void considerLine(Opened o, int run, double[] box, int[] rect) {
+        if (camera == null || opened != o || !lineFocusAsked || lineFocusWhy(o) != null) return;
+        if (run >= 0 && run != finderRun) return;
+        if (interopWrites > 0) return;
+        double[] at = rect == null ? null : new double[] { rect[0], rect[1], rect[2], rect[3] };
+        double[] to = follower.decide(at, SystemClock.elapsedRealtime());
+        if (to == null) return;
         Camera2CameraControl c2 = Camera2CameraControl.from(camera.getCameraControl());
-        if (rect == null) {
+        if (to == LineFocus.Follower.CLEAR_BOX) {
             if (lineRect == null) return;
-            lineRect = null;
-            lineBox = null;
+            endLine();
             c2.clearCaptureRequestOptions();
             return;
         }
@@ -1370,7 +1369,7 @@ public class ScannerCameraPlugin extends Plugin {
         lineRect = rect;
         lineBox = box;
         lineMoves++;
-        sentRects.add(rect);
+        sentRects.add(rect, SystemClock.elapsedRealtime());
         c2.setCaptureRequestOptions(new CaptureRequestOptions.Builder().setCaptureRequestOption(CaptureRequest.CONTROL_AF_REGIONS, new MeteringRectangle[] { region }).build());
         watchStale();
     }
@@ -1391,9 +1390,10 @@ public class ScannerCameraPlugin extends Plugin {
         staleWatch = false;
         if (lineRect == null || camera == null) return;
         long since = SystemClock.elapsedRealtime() - follower.cardAt();
-        if (since < STALE_MS) {
+        // (Not over a settings call's write still settling: clearing now would cancel it.)
+        if (since < STALE_MS || interopWrites > 0) {
             staleWatch = true;
-            main.postDelayed(this::checkStale, Math.max(100, STALE_MS - since));
+            main.postDelayed(this::checkStale, since < STALE_MS ? Math.max(100, STALE_MS - since) : 250);
             return;
         }
         boolean continuous = "continuous".equals(focusMode);
@@ -1401,24 +1401,34 @@ public class ScannerCameraPlugin extends Plugin {
         if (continuous) Camera2CameraControl.from(camera.getCameraControl()).clearCaptureRequestOptions();
     }
 
-    /** A settings call's own `Camera2CameraControl` write: counted until it settles, for this binding only. */
+    /**
+     * A settings call's own `Camera2CameraControl` write: counted until it settles or
+     * {@link #INTEROP_WAIT_MS} has passed, whichever is first, once, for this binding only.
+     */
     private <T> ListenableFuture<T> interop(ListenableFuture<T> write) {
         int mine = binding;
         interopWrites++;
-        write.addListener(
-            () -> {
-                if (mine == binding) interopWrites = Math.max(0, interopWrites - 1);
-            },
-            ContextCompat.getMainExecutor(getContext())
-        );
+        boolean[] released = { false };
+        Runnable release = () -> {
+            if (released[0]) return;
+            released[0] = true;
+            if (mine == binding) interopWrites = Math.max(0, interopWrites - 1);
+        };
+        write.addListener(release, ContextCompat.getMainExecutor(getContext()));
+        main.postDelayed(release, INTEROP_WAIT_MS);
         return write;
+    }
+
+    /** The main thread: the region in force is gone from now (the captures after it aren't on the line). */
+    private void endLine() {
+        lineRect = null;
+        lineBox = null;
+        sentRects.end(SystemClock.elapsedRealtime());
     }
 
     /** Whatever region was in force is gone (or replaced): forgotten, so the next frame with a card sends one again. */
     private void forgetLine() {
-        lineGen++;
-        lineRect = null;
-        lineBox = null;
+        endLine();
         follower.forget();
     }
 
@@ -1436,30 +1446,40 @@ public class ScannerCameraPlugin extends Plugin {
     }
 
     /**
-     * The camera's capture thread: what it says of a frame (focus, exposure, and whether it focused
-     * on a region sent for the line), kept to be matched with the frame by its timestamp; and the
-     * crop region, for where frames lie on the sensor.
+     * The camera's capture thread: what it says of a frame (focus, exposure, and whether it asked
+     * for and focused on a region sent for the line), kept to be matched with the frame by its
+     * timestamp; and the crop region, for where frames lie on the sensor.
      */
     private void noteCapture(CaptureRequest request, TotalCaptureResult result) {
-        android.graphics.Rect crop = result.get(CaptureResult.SCALER_CROP_REGION);
-        if (crop != null) {
+        android.graphics.Rect cropped = result.get(CaptureResult.SCALER_CROP_REGION);
+        int[] crop = null;
+        if (cropped != null) {
             int[] known = scalerCrop;
-            if (known == null || known[0] != crop.left || known[1] != crop.top || known[2] != crop.right || known[3] != crop.bottom) scalerCrop = new int[] { crop.left, crop.top, crop.right, crop.bottom };
+            if (known != null && known[0] == cropped.left && known[1] == cropped.top && known[2] == cropped.right && known[3] == cropped.bottom) crop = known;
+            else scalerCrop = crop = new int[] { cropped.left, cropped.top, cropped.right, cropped.bottom };
         }
         Long at = result.get(CaptureResult.SENSOR_TIMESTAMP);
         if (at == null) return;
         Integer af = result.get(CaptureResult.CONTROL_AF_STATE);
         Float diopters = result.get(CaptureResult.LENS_FOCUS_DISTANCE);
         Long exposure = result.get(CaptureResult.SENSOR_EXPOSURE_TIME);
-        // The region the camera says it used (it may trim or move one), else the one asked for.
+        long now = SystemClock.elapsedRealtime();
+        // Asked for, and what the camera says it used (it may trim or move a region); unknown where
+        // its result doesn't say (Codex re-check of #218: the request alone isn't the camera's word).
+        boolean asked = onLine(request.get(CaptureRequest.CONTROL_AF_REGIONS), now);
         MeteringRectangle[] used = result.get(CaptureResult.CONTROL_AF_REGIONS);
-        if (used == null) used = request.get(CaptureRequest.CONTROL_AF_REGIONS);
-        boolean onLine = false;
-        if (used != null) for (MeteringRectangle m : used) if (m.getMeteringWeight() > 0 && sentRects.has(new int[] { m.getX(), m.getY(), m.getX() + m.getWidth(), m.getY() + m.getHeight() })) onLine = true;
+        Boolean confirmed = used == null ? null : onLine(used, now);
         Opened o = opened;
         // In dioptres only where the lens says it is calibrated, at least roughly (Codex review of #218).
         float d = diopters == null || o == null || !o.focusCalibrated ? -1 : diopters;
-        captures.note(at, new LineFocus.Capture(af == null ? -1 : af, d, exposure == null ? 0 : exposure, onLine));
+        captures.note(at, new LineFocus.Capture(af == null ? -1 : af, d, exposure == null ? 0 : exposure, confirmed, asked, crop));
+    }
+
+    /** Whether one of these regions is a region sent for the line, in force or just replaced (`sentRects`). */
+    private boolean onLine(MeteringRectangle[] regions, long now) {
+        if (regions == null) return false;
+        for (MeteringRectangle m : regions) if (m.getMeteringWeight() > 0 && sentRects.has(new int[] { m.getX(), m.getY(), m.getX() + m.getWidth(), m.getY() + m.getHeight() }, now)) return true;
+        return false;
     }
 
     /** What the page is told of it (`describe`). */
@@ -1847,8 +1867,8 @@ public class ScannerCameraPlugin extends Plugin {
         float findMs;
         int passes;
         float ageMs;
-        /** What the camera said of the frame as it took it, or null. */
-        LineFocus.Capture capture;
+        /** The sensor's timestamp of the frame, whose capture is looked up as the reply is written (LineFocus.Captures), or 0. */
+        long timestamp;
     }
 
     /** The reader thread: make the frame or region a request asks for. */
@@ -1894,7 +1914,7 @@ public class ScannerCameraPlugin extends Plugin {
         r.findMs = (float) snap.ms;
         r.passes = snap.passes;
         r.ageMs = (now - snap.takenAt) / 1e6f;
-        r.capture = captures.exact(snap.timestamp);
+        r.timestamp = snap.timestamp;
         r.sentAt = System.currentTimeMillis();
         return r;
     }
@@ -1959,7 +1979,7 @@ public class ScannerCameraPlugin extends Plugin {
         r.fullWidth = uw;
         r.fullHeight = uh;
         r.seq = f.seq;
-        r.capture = captures.exact(f.timestamp);
+        r.timestamp = f.timestamp;
         r.bytes = new byte[HEADER + outW * outH * 4];
         ScannerFrames.toRgba(f, rx, ry, rw, rh, outW, outH, r.bytes, HEADER);
         r.length = r.bytes.length;
@@ -2034,7 +2054,8 @@ public class ScannerCameraPlugin extends Plugin {
             h.putDouble(r.sentAt).putFloat(r.convertMs).putFloat(r.waitMs);
             h.putInt(r.finderState).putFloat(r.vote);
             for (int i = 0; i < 8; i++) h.putFloat(r.quad == null ? Float.NaN : (float) r.quad[i]);
-            h.putFloat(r.findMs).putInt(r.passes).putFloat(r.ageMs).putInt(LineFocus.pack(r.capture));
+            // What the camera said of the frame, looked up last, by when its result has most likely come.
+            h.putFloat(r.findMs).putInt(r.passes).putFloat(r.ageMs).putInt(LineFocus.pack(r.timestamp == 0 ? null : captures.exact(r.timestamp)));
             out = r.bytes;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -2093,7 +2114,7 @@ public class ScannerCameraPlugin extends Plugin {
                 found.put("ageMs", r.ageMs);
                 ret.put("finder", found);
                 // The header's last four bytes, as one number (LineFocus.pack).
-                ret.put("capture", LineFocus.pack(r.capture));
+                ret.put("capture", LineFocus.pack(r.timestamp == 0 ? null : captures.exact(r.timestamp)));
                 ret.put("data", data);
                 // After the base64 is made, so the page's "in transit" doesn't count making it.
                 ret.put("encodeMs", (float) (System.currentTimeMillis() - r.sentAt));

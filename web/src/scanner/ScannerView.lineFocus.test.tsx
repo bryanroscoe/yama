@@ -68,7 +68,7 @@ vi.mock("./nativeCamera", async (original) => {
         ready: Promise.resolve(info),
         frame: () => el,
         fullScale: () => 3.375,
-        around: async (quad: Quad) => ({ image: { width: 4, height: 4, data: new Uint8ClampedArray(64) }, quad, capture: { af: "passive-focused", line: true, focusCm: 19, exposureMs: 16.6 } }),
+        around: async (quad: Quad) => ({ image: { width: 4, height: 4, data: new Uint8ClampedArray(64) }, quad, capture: { af: "passive-focused" as const, line: true, lineAsked: true, focusCm: 19, exposureMs: 16.6 } }),
         region: async () => ({ width: 4, height: 4, data: new Uint8ClampedArray(64) }),
         track: () => null,
         info: () => info,
