@@ -22,7 +22,7 @@
 
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { cameraInfo, type ExposureSetter } from "./camera";
-import { CUT_SIDE, cutBox, draw, partQuad, type BridgeCost, type CameraSource, type FrameElement, type SourceInfo } from "./cameraSource";
+import { CUT_SIDE, cutBox, draw, partQuad, type AfState, type BridgeCost, type CameraSource, type FrameCapture, type FrameElement, type SourceInfo } from "./cameraSource";
 import { RECOGNIZER_SHORT_SIDE } from "./artClient";
 import { canFit, DEFAULT_ASPECT, fitPicture } from "./fit";
 import type { Quad, RgbaImage } from "./types";
@@ -47,6 +47,12 @@ export interface NativeCameraOption {
    * and less exposure keeps the detail under the sheen).
    */
   exposure: number;
+  /**
+   * Autofocus looks at the card's collector line rather than the middle of the picture, following
+   * the card as the app's card finder sees it (LineFocus.java). On unless turned off; an option saved
+   * before it (27 Nov 2026) reads as on, with no new version.
+   */
+  lineFocus: boolean;
 }
 
 /** On this device: whether the scanner uses the app's own camera, and how it's set. */
@@ -94,7 +100,7 @@ const lensKept = (lens: NativeLens, version: number) => version >= SAVED_VERSION
 
 /** Use the app's own camera where the plugin is available unless this device opted out. */
 export function savedNativeCamera(): NativeCameraOption {
-  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: DEFAULT_LENS, fps: 30, torchLevel: null, exposure: 0 };
+  const defaults: NativeCameraOption = { on: nativeCameraAvailable(), lens: DEFAULT_LENS, fps: 30, torchLevel: null, exposure: 0, lineFocus: true };
   try {
     const v = JSON.parse(localStorage.getItem(NATIVE_CAMERA_KEY) ?? "null") as (Partial<NativeCameraOption> & { v?: unknown }) | null;
     if (!v || typeof v !== "object") return defaults;
@@ -105,6 +111,7 @@ export function savedNativeCamera(): NativeCameraOption {
       fps: v.fps === 60 ? 60 : defaults.fps,
       torchLevel: positive(v.torchLevel) ? Math.round(v.torchLevel) : defaults.torchLevel,
       exposure: exposureOf(v.exposure),
+      lineFocus: typeof v.lineFocus === "boolean" ? v.lineFocus : defaults.lineFocus,
     };
   } catch {
     return defaults;
@@ -113,7 +120,7 @@ export function savedNativeCamera(): NativeCameraOption {
 
 export function saveNativeCamera(o: NativeCameraOption) {
   try {
-    localStorage.setItem(NATIVE_CAMERA_KEY, JSON.stringify({ v: SAVED_VERSION, on: o.on, lens: o.lens, fps: o.fps, torchLevel: o.torchLevel, exposure: exposureOf(o.exposure) }));
+    localStorage.setItem(NATIVE_CAMERA_KEY, JSON.stringify({ v: SAVED_VERSION, on: o.on, lens: o.lens, fps: o.fps, torchLevel: o.torchLevel, exposure: exposureOf(o.exposure), lineFocus: o.lineFocus !== false }));
   } catch {
     /* storage off */
   }
@@ -166,6 +173,39 @@ export interface NativeDescribed {
   finder?: NativeFinderStatus;
   /** Exposure compensation (APKs since 23 Nov 2026; an older one doesn't say, and can't set it). */
   exposure?: NativeExposure;
+  /** Autofocus on the collector line (APKs since 27 Nov 2026; an older one doesn't say, and never does it). */
+  lineFocus?: NativeLineFocus;
+}
+
+/**
+ * Whether autofocus follows the card's collector line (LineFocus.java): asked for by the page, and
+ * really doing it, or why not; how many times the focus region has moved with the card since the
+ * camera opened, and where it is now (shares of the upright frame: left, top, right, bottom).
+ */
+export interface NativeLineFocus {
+  asked: boolean;
+  on: boolean;
+  why?: string;
+  moves: number;
+  box?: [number, number, number, number];
+}
+
+/** Camera2's autofocus states, by CaptureResult.CONTROL_AF_STATE's number. */
+export const AF_STATES: readonly AfState[] = ["inactive", "passive-scan", "passive-focused", "active-scan", "focused-locked", "not-focused-locked", "passive-unfocused"];
+
+/**
+ * What the camera said of a frame, from a reply header's last four bytes (LineFocus.pack, little
+ * endian): the autofocus state plus one with the top bit for "on the line", the focus distance in
+ * centimetres, the exposure in tenths of a millisecond; 0 in each for unknown. Undefined when all
+ * are zero, as an APK from before 27 Nov 2026 sends.
+ */
+export function captureOf(packed: number | undefined): FrameCapture | undefined {
+  const p = (packed ?? 0) >>> 0;
+  if (!p) return undefined;
+  const af = AF_STATES[(p & 0x7f) - 1];
+  const cm = (p >>> 8) & 0xff;
+  const tenths = (p >>> 16) & 0xffff;
+  return { line: (p & 0x80) !== 0, ...(af ? { af } : {}), ...(cm ? { focusCm: cm } : {}), ...(tenths ? { exposureMs: tenths / 10 } : {}) };
 }
 
 /**
@@ -258,6 +298,8 @@ export interface NativeSet {
   point?: { x: number; y: number };
   /** Exposure compensation in EV: the app sets the nearest step, within the camera's range. */
   exposure?: number;
+  /** Autofocus on the collector line of the card the finder sees, or not (an older APK ignores it). */
+  lineFocus?: boolean;
 }
 
 export interface FrameRequest {
@@ -292,11 +334,13 @@ interface Base64Frame {
   sentAt: number;
   data: string;
   finder?: Omit<NativeFound, "quad"> & { quad?: [number, number][] };
+  /** The header's last four bytes as one number (`captureOf`); absent from an older APK. */
+  capture?: number;
 }
 
 export interface ScannerCameraPlugin {
   available(): Promise<{ available: boolean; binary: boolean }>;
-  open(o: { lens: string; fps: number; width: number; height: number; rect: NativeRect | null }): Promise<NativeDescribed>;
+  open(o: { lens: string; fps: number; width: number; height: number; rect: NativeRect | null; lineFocus?: boolean }): Promise<NativeDescribed>;
   close(): Promise<void>;
   setRect(o: { rect: NativeRect }): Promise<void>;
   set(o: NativeSet): Promise<NativeDescribed>;
@@ -358,6 +402,8 @@ export interface NativeFrame {
   transitMs: number;
   /** The app's card finder on this frame (absent from a plain frame of an APK without it). */
   finder?: NativeFound;
+  /** What the camera said of the frame as it took it (absent from an APK before 27 Nov 2026). */
+  capture?: FrameCapture;
 }
 
 export interface FrameTransport {
@@ -399,6 +445,7 @@ export function parseReply(buf: ArrayBuffer, now = Date.now()): { id: number; fr
       waitMs: h.getFloat32(44, true),
       transitMs: Math.max(0, now - h.getFloat64(32, true)),
       finder,
+      capture: captureOf(h.getUint32(100, true)),
     },
   };
 }
@@ -481,7 +528,7 @@ export function base64Transport(plugin: Pick<ScannerCameraPlugin, "frame" | "reg
       // Decoding the base64 is part of what this way of crossing costs.
       const f = r.finder;
       const finder: NativeFound | undefined = f ? { state: f.state, quad: f.state === FOUND_CARD ? quadOf(f.quad) : null, vote: f.vote, ms: f.ms, passes: f.passes, ageMs: f.ageMs, seq: r.seq } : undefined;
-      return { width: r.width, height: r.height, fullWidth: r.fullWidth, fullHeight: r.fullHeight, seq: r.seq, format: r.format, data, convertMs: r.convertMs, waitMs: r.waitMs, transitMs: Math.max(0, arrived - r.sentAt) + (Date.now() - arrived), finder };
+      return { width: r.width, height: r.height, fullWidth: r.fullWidth, fullHeight: r.fullHeight, seq: r.seq, format: r.format, data, convertMs: r.convertMs, waitMs: r.waitMs, transitMs: Math.max(0, arrived - r.sentAt) + (Date.now() - arrived), finder, capture: captureOf(r.capture) };
     },
     close() {},
   };
@@ -515,6 +562,8 @@ export interface NativeCameraRequest {
    * saved on this device (`savedNativeCamera`). 0 or a camera that can't sets nothing.
    */
   exposure?: number | null;
+  /** Autofocus on the collector line from the start (LineFocus.java): a scan that reads printings, with the option on. */
+  lineFocus?: boolean;
 }
 
 /** One way of crossing the bridge, timed (ms, medians). */
@@ -545,6 +594,8 @@ export interface NativeCamera extends CameraSource {
    * to the camera. Whether it took it. `cancelled` is asked right before it reaches the camera.
    */
   setExposure: ExposureSetter;
+  /** Autofocus on the collector line, or not, from now on (an APK before 27 Nov 2026 ignores it). */
+  setLineFocus(on: boolean): Promise<void>;
   /** Time every way a frame can cross to the page. */
   bench(frames?: number): Promise<BenchRow[]>;
   /**
@@ -785,6 +836,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       frameHeight: hasFrame ? el.height : undefined,
       transport: transport?.kind,
       bridge: bridge(),
+      ...(d.lineFocus ? { lineFocus: d.lineFocus.on } : {}),
     };
   };
 
@@ -833,7 +885,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     const d = await inTurn(async () => {
       if (closed) throw new Error("The camera closed");
       asked = true;
-      return plugin.open({ lens: req.lens, fps: req.fps, width: req.width, height: req.height, rect: rect() });
+      return plugin.open({ lens: req.lens, fps: req.fps, width: req.width, height: req.height, rect: rect(), lineFocus: !!req.lineFocus });
     });
     // Closed while it was opening: `close` has already asked for it to be closed, in turn.
     if (closed) throw new Error("The camera closed");
@@ -926,7 +978,7 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
       // Pixels of the cut per frame pixel: the cut is from the full frame, so usually more than 1.
       const kx = f.width / b.w;
       const ky = f.height / b.h;
-      return { image: imageOf(f), quad: quad.map(([x, y]) => [(x - b.x) * kx, (y - b.y) * ky]) as Quad };
+      return { image: imageOf(f), quad: quad.map(([x, y]) => [(x - b.x) * kx, (y - b.y) * ky]) as Quad, ...(f.capture ? { capture: f.capture } : {}) };
     },
     async region(box, w, h, scratch) {
       const t = need();
@@ -943,6 +995,10 @@ export function openNativeCamera(canvas: HTMLCanvasElement, req: NativeCameraReq
     track: () => (closed || !described ? null : track),
     info,
     described: () => described,
+    async setLineFocus(on) {
+      if (closed || !described) return;
+      await set({ lineFocus: on });
+    },
     async setTorchLevel(level) {
       torchLevel = positiveOrNull(level);
       if (closed || !described || !described.torch || !torchLevel || described.torchLevels <= 1) return;

@@ -8,6 +8,7 @@ import {
   base64Transport,
   benchLine,
   binaryTransport,
+  captureOf,
   exposureRange,
   HEADER,
   NATIVE_CAMERA_KEY,
@@ -26,7 +27,7 @@ import {
 import type { Quad } from "./types";
 
 /** A binary reply as ScannerCameraPlugin.answer writes it. */
-function reply(o: { id: number; width?: number; height?: number; full?: [number, number]; seq?: number; error?: string; jpeg?: Uint8Array; sentAt?: number }): ArrayBuffer {
+function reply(o: { id: number; width?: number; height?: number; full?: [number, number]; seq?: number; error?: string; jpeg?: Uint8Array; sentAt?: number; capture?: number }): ArrayBuffer {
   const body = o.error != null ? new TextEncoder().encode(o.error) : (o.jpeg ?? new Uint8Array((o.width ?? 0) * (o.height ?? 0) * 4).fill(7));
   const buf = new ArrayBuffer(HEADER + body.byteLength);
   const h = new DataView(buf);
@@ -41,6 +42,7 @@ function reply(o: { id: number; width?: number; height?: number; full?: [number,
   h.setFloat64(32, o.sentAt ?? Date.now(), true);
   h.setFloat32(40, 3.5, true);
   h.setFloat32(44, 12, true);
+  h.setUint32(100, o.capture ?? 0, true);
   new Uint8Array(buf, HEADER).set(body);
   return buf;
 }
@@ -77,7 +79,7 @@ const DESCRIBED: NativeDescribed = {
 const EXPOSURE = { supported: true, min: -2, max: 2, step: 1 / 6, ev: 0, index: 0, minIndex: -12, maxIndex: 12, stepRational: [1, 6] as [number, number] };
 
 /** The plugin and the channel, in memory: a 360 × 640 frame of a 2160 × 3840 camera. */
-function fakes(described: NativeDescribed = DESCRIBED) {
+function fakes(described: NativeDescribed = DESCRIBED, opts: { capture?: number } = {}) {
   const sets: NativeSet[] = [];
   const requests: FrameRequest[] = [];
   const calls: string[] = [];
@@ -92,15 +94,17 @@ function fakes(described: NativeDescribed = DESCRIBED) {
       const rw = frame ? 360 : Math.round((q.w ?? 1) * 2160);
       const rh = frame ? 640 : Math.round((q.h ?? 1) * 3840);
       const k = frame ? 1 : Math.min(1, (q.maxSide ?? Infinity) / Math.max(rw, rh));
-      const buf = reply({ id: q.id, width: Math.round(rw * k), height: Math.round(rh * k), full: [2160, 3840], seq: (seq += 1) });
+      const buf = reply({ id: q.id, width: Math.round(rw * k), height: Math.round(rh * k), full: [2160, 3840], seq: (seq += 1), capture: frame ? undefined : opts.capture });
       setTimeout(() => this.onmessage?.({ data: buf }), 0);
     },
   };
   let now = { ...described };
+  const opens: Parameters<ScannerCameraPlugin["open"]>[0][] = [];
   const plugin: ScannerCameraPlugin = {
     available: async () => ({ available: true, binary: true }),
-    open: async () => {
+    open: async (o) => {
       calls.push("open");
+      opens.push(o);
       return now;
     },
     close: async () => {
@@ -122,7 +126,7 @@ function fakes(described: NativeDescribed = DESCRIBED) {
     frame: async () => ({ width: 2, height: 1, fullWidth: 2160, fullHeight: 3840, seq: 1, format: "rgba", convertMs: 1, waitMs: 0, sentAt: Date.now(), data: btoa(String.fromCharCode(1, 2, 3, 255, 4, 5, 6, 255)) }),
     region: async () => ({ width: 1, height: 1, fullWidth: 2160, fullHeight: 3840, seq: 1, format: "rgba", convertMs: 1, waitMs: 0, sentAt: Date.now(), data: btoa(String.fromCharCode(9, 9, 9, 255)) }),
   };
-  return { plugin, channel, sets, requests, calls };
+  return { plugin, channel, sets, requests, calls, opens };
 }
 
 const store = new Map<string, string>();
@@ -140,20 +144,20 @@ afterEach(() => {
 
 describe("the option", () => {
   it("defaults to the browser camera without the plugin and ignores malformed settings", () => {
-    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null, exposure: 0 });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null, exposure: 0, lineFocus: true });
     store.set(NATIVE_CAMERA_KEY, "not json");
     expect(savedNativeCamera().on).toBe(false);
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ on: "yes", lens: "fisheye", fps: -3, focus: "near" }));
-    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null, exposure: 0 });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "auto", fps: 30, torchLevel: null, exposure: 0, lineFocus: true });
   });
   it("uses the native camera when supported and preserves an explicit opt-out", () => {
     vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
     const available = vi.spyOn(Capacitor, "isPluginAvailable").mockImplementation((name) => name === "ScannerCamera");
-    expect(savedNativeCamera()).toEqual({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: 0 });
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: 0, lineFocus: true });
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ lens: "ultrawide", fps: 60 }));
-    expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, torchLevel: null, exposure: 0 });
-    saveNativeCamera({ on: false, lens: "main", fps: 60, torchLevel: null, exposure: 0 });
-    expect(savedNativeCamera()).toEqual({ on: false, lens: "main", fps: 60, torchLevel: null, exposure: 0 });
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, torchLevel: null, exposure: 0, lineFocus: true });
+    saveNativeCamera({ on: false, lens: "main", fps: 60, torchLevel: null, exposure: 0, lineFocus: true });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "main", fps: 60, torchLevel: null, exposure: 0, lineFocus: true });
     store.delete(NATIVE_CAMERA_KEY);
     available.mockReturnValue(false);
     expect(savedNativeCamera().on).toBe(false);
@@ -163,7 +167,7 @@ describe("the option", () => {
     vi.spyOn(Capacitor, "isPluginAvailable").mockImplementation((name) => name === "ScannerCamera");
     // Saved with version 3, on Main, which was then the default.
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 3, on: true, lens: "main", fps: 30, torchLevel: null }));
-    expect(savedNativeCamera()).toEqual({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: 0 });
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: 0, lineFocus: true });
     // Main chosen while Automatic was the default (before version 3): a choice, kept.
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ lens: "main", fps: 60 }));
     expect(savedNativeCamera()).toMatchObject({ lens: "main", fps: 60 });
@@ -175,7 +179,7 @@ describe("the option", () => {
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 3, on: true, lens: "ultrawide", fps: 30 }));
     expect(savedNativeCamera().lens).toBe("ultrawide");
     // Main chosen since: kept.
-    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: 0 });
+    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: 0, lineFocus: true });
     expect(savedNativeCamera().lens).toBe("main");
   });
   it("takes the default over an off saved while the app's camera was opt-in, keeping the rest", () => {
@@ -183,15 +187,15 @@ describe("the option", () => {
     vi.spyOn(Capacitor, "isPluginAvailable").mockImplementation((name) => name === "ScannerCamera");
     // As the option was saved before 22 Nov 2026: no version, `on: false` beside a lens chosen.
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ on: false, lens: "ultrawide", fps: 60, torchLevel: 2 }));
-    expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, torchLevel: 2, exposure: 0 });
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, torchLevel: 2, exposure: 0, lineFocus: true });
     // Turned off since, it stays off.
-    saveNativeCamera({ on: false, lens: "main", fps: 60, torchLevel: 2, exposure: 0 });
+    saveNativeCamera({ on: false, lens: "main", fps: 60, torchLevel: 2, exposure: 0, lineFocus: true });
     expect(JSON.parse(store.get(NATIVE_CAMERA_KEY)!)).toMatchObject({ v: 4, on: false });
     expect(savedNativeCamera().on).toBe(false);
   });
   it("is remembered on this device", () => {
-    saveNativeCamera({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3, exposure: 0 });
-    expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3, exposure: 0 });
+    saveNativeCamera({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3, exposure: 0, lineFocus: true });
+    expect(savedNativeCamera()).toEqual({ on: true, lens: "ultrawide", fps: 60, torchLevel: 3, exposure: 0, lineFocus: true });
     // Only 30 or 60: a faster rate saved by hand is 30.
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ on: true, fps: 120 }));
     expect(savedNativeCamera().fps).toBe(30);
@@ -200,11 +204,11 @@ describe("the option", () => {
     expect(nativeCameraAvailable()).toBe(false);
   });
   it("keeps the exposure chosen (23 Nov 2026), and reads a save from before it as the camera's own", () => {
-    saveNativeCamera({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: -0.667 });
+    saveNativeCamera({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: -0.667, lineFocus: true });
     expect(savedNativeCamera().exposure).toBe(-0.667);
     // Saved before exposure, with this version and older ones: everything else as it was, the exposure 0.
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 4, on: false, lens: "main", fps: 60, torchLevel: 3 }));
-    expect(savedNativeCamera()).toEqual({ on: false, lens: "main", fps: 60, torchLevel: 3, exposure: 0 });
+    expect(savedNativeCamera()).toEqual({ on: false, lens: "main", fps: 60, torchLevel: 3, exposure: 0, lineFocus: true });
     store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 3, on: true, lens: "ultrawide", fps: 30 }));
     expect(savedNativeCamera()).toMatchObject({ lens: "ultrawide", exposure: 0 });
     // Nonsense is the camera's own.
@@ -213,10 +217,80 @@ describe("the option", () => {
       expect(savedNativeCamera().exposure).toBe(0);
     }
     // To three decimals, and never a negative zero.
-    saveNativeCamera({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: -0.66666666 });
+    saveNativeCamera({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: -0.66666666, lineFocus: true });
     expect(JSON.parse(store.get(NATIVE_CAMERA_KEY)!)).toMatchObject({ v: 4, exposure: -0.667 });
-    saveNativeCamera({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: -0.0001 });
+    saveNativeCamera({ on: true, lens: "auto", fps: 30, torchLevel: null, exposure: -0.0001, lineFocus: true });
     expect(Object.is(savedNativeCamera().exposure, 0)).toBe(true);
+  });
+});
+
+describe("focusing on the collector line (27 Nov 2026)", () => {
+  it("is on unless turned off, and a save from before it reads as on", () => {
+    vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+    vi.spyOn(Capacitor, "isPluginAvailable").mockReturnValue(true);
+    expect(savedNativeCamera().lineFocus).toBe(true);
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 4, on: true, lens: "auto", fps: 30, torchLevel: null, exposure: 0 }));
+    expect(savedNativeCamera().lineFocus).toBe(true);
+    saveNativeCamera({ ...savedNativeCamera(), lineFocus: false });
+    expect(savedNativeCamera()).toMatchObject({ lineFocus: false, lens: "auto", on: true });
+    store.set(NATIVE_CAMERA_KEY, JSON.stringify({ v: 4, on: true, lens: "auto", fps: 30, lineFocus: "no" }));
+    expect(savedNativeCamera().lineFocus).toBe(true);
+  });
+
+  it("reads what the camera said of a frame from the header's last four bytes", () => {
+    // Focused on its own (2, plus one), on the line (top bit); 20 cm; 33.3 ms (333 tenths).
+    expect(captureOf(0x83 | (20 << 8) | (333 << 16))).toEqual({ af: "passive-focused", line: true, focusCm: 20, exposureMs: 33.3 });
+    // Still finding focus, not on the line, distance unknown.
+    expect(captureOf(2 | (0 << 8) | (85 << 16))).toEqual({ af: "passive-scan", line: false, exposureMs: 8.5 });
+    // As far as can be said, the longest exposure (the top bits set: a negative int in Java).
+    expect(captureOf((255 << 8) | (65535 << 16))).toEqual({ line: false, focusCm: 255, exposureMs: 6553.5 });
+    expect(captureOf(((255 << 8) | (65535 << 16)) | 0)).toEqual({ line: false, focusCm: 255, exposureMs: 6553.5 });
+    // Nothing said (an APK before it), or an autofocus state it doesn't know.
+    expect(captureOf(0)).toBeUndefined();
+    expect(captureOf(undefined)).toBeUndefined();
+    expect(captureOf(0x7f)).toEqual({ line: false });
+  });
+
+  it("comes with a binary reply, and not from an older APK", () => {
+    expect(parseReply(reply({ id: 1, width: 1, height: 1, capture: 3 | (25 << 8) | (100 << 16) })).frame!.capture).toEqual({ af: "passive-focused", line: false, focusCm: 25, exposureMs: 10 });
+    expect(parseReply(reply({ id: 1, width: 1, height: 1 })).frame!.capture).toBeUndefined();
+  });
+
+  it("comes with a base64 frame", async () => {
+    const { plugin } = fakes();
+    const t = base64Transport({ ...plugin, region: async () => ({ ...(await plugin.region({ op: "region" })), capture: 0x83 | (19 << 8) | (200 << 16) }) });
+    expect((await t.request({ op: "region" })).capture).toEqual({ af: "passive-focused", line: true, focusCm: 19, exposureMs: 20 });
+  });
+
+  it("is asked for as the camera opens, turned on and off later, and said in what it delivers", async () => {
+    const lineFocus = { asked: true, on: true, moves: 3, box: [0.1, 0.6, 0.4, 0.7] as [number, number, number, number] };
+    const { plugin, channel, opens, sets } = fakes({ ...DESCRIBED, lineFocus });
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160, lineFocus: true }, { plugin, channel, settleMs: 0 });
+    const info = await cam.ready;
+    expect(opens[0]).toMatchObject({ lens: "auto", lineFocus: true });
+    expect(info.lineFocus).toBe(true);
+    expect(cam.described()!.lineFocus).toEqual(lineFocus);
+    await cam.setLineFocus(false);
+    expect(sets).toEqual([{ lineFocus: false }]);
+    cam.close();
+    // Closed: nothing more is sent.
+    await cam.setLineFocus(true);
+    expect(sets).toEqual([{ lineFocus: false }]);
+    // Not asked for, it says so; an older APK says nothing of it.
+    const old = fakes();
+    const plain = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160 }, { plugin: old.plugin, channel: old.channel, settleMs: 0 });
+    expect((await plain.ready).lineFocus).toBeUndefined();
+    expect(old.opens[0]!.lineFocus).toBe(false);
+    plain.close();
+  });
+
+  it("gives a card's cut what the camera said of its frame", async () => {
+    const { plugin, channel } = fakes(DESCRIBED, { capture: 0x83 | (21 << 8) | (166 << 16) });
+    const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160 }, { plugin, channel, settleMs: 0 });
+    await cam.ready;
+    const cut = await cam.around(quad, document.createElement("canvas"), 2400);
+    expect(cut.capture).toEqual({ af: "passive-focused", line: true, focusCm: 21, exposureMs: 16.6 });
+    cam.close();
   });
 });
 
@@ -544,7 +618,7 @@ describe("the app's camera's controls, as a track", () => {
   });
 
   it("opens at the exposure saved on this device, before anyone reads the camera's settings", async () => {
-    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: -0.7 });
+    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: -0.7, lineFocus: true });
     const { cam, track, sets } = await opened({}, { ...DESCRIBED, exposure: EXPOSURE });
     expect(sets).toEqual([{ exposure: -0.7 }]);
     // The nearest sixth of a stop.
@@ -563,7 +637,7 @@ describe("the app's camera's controls, as a track", () => {
   });
 
   it("opens all the same when the camera refuses the saved exposure", async () => {
-    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: -1 });
+    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: -1, lineFocus: true });
     const f = fakes({ ...DESCRIBED, exposure: EXPOSURE });
     f.plugin.set = async () => {
       throw new Error("The camera refused that setting");
@@ -592,7 +666,7 @@ describe("the app's camera's controls, as a track", () => {
   });
 
   it("never sets the exposure from Scan settings while the camera opens: it waits, then goes through the controls (Codex review of #210)", async () => {
-    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: -1 });
+    saveNativeCamera({ on: true, lens: "main", fps: 30, torchLevel: null, exposure: -1, lineFocus: true });
     const f = fakes({ ...DESCRIBED, exposure: EXPOSURE });
     const cam = openNativeCamera(document.createElement("canvas"), { lens: "main", fps: 30, width: 3840, height: 2160 }, { plugin: f.plugin, channel: f.channel, settleMs: 0 });
     // The scanner attaches the camera once it's ready, and lends its setter (camera.tsx).

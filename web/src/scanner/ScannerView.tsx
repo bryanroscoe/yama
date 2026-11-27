@@ -20,7 +20,7 @@ import { scannerSettled, SpeedTest } from "./SpeedTest";
 import { NameIndex } from "./fuzzy";
 import { normaliseName } from "./parse";
 import { rectQuad } from "./image";
-import { cropTimesNote, deleteDiagnostics, diagnosticsOn, diagnosticsSummary, MAX_NOTE, setDiagnosticsOn, ScanRecord, stepAppeared, TimingRecord, type Appeared, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
+import { captureNote, cropTimesNote, deleteDiagnostics, diagnosticsOn, diagnosticsSummary, MAX_NOTE, setDiagnosticsOn, ScanRecord, stepAppeared, TimingRecord, type Appeared, type DiagnosticsSummary, type Outcome, type PrintingWay, type Reason, type SettleRule } from "./diagnostics";
 import type { StripQuality } from "./quality";
 import { readCloseup, readCollectorLines, readTitles, scanFrame, SURE, type CropTime } from "./pipeline";
 import { artHoldFrame, AWAY_FRAMES, hold, holdRead, type ArtHold, type Hold } from "./hold";
@@ -323,7 +323,7 @@ interface Known {
 
 /** What a provisional row's printing is worked out from: the view the card was named in, and the frames kept for its look. */
 interface LaterKept {
-  read: { image: RgbaImage; quad: Quad } | null;
+  read: Shot | null;
   frames: Promise<WireFrame[]> | null;
 }
 
@@ -538,7 +538,7 @@ function smallRegion(source: CanvasImageSource, r: { x: number; y: number; w: nu
  */
 const IDENTITY_SIDE = 1200;
 
-function around(source: CanvasImageSource, width: number, height: number, quad: Quad, canvas: HTMLCanvasElement, maxSide = 2400): { image: RgbaImage; quad: Quad } {
+function around(source: CanvasImageSource, width: number, height: number, quad: Quad, canvas: HTMLCanvasElement, maxSide = 2400): Shot {
   const xs = quad.map((p) => p[0]);
   const ys = quad.map((p) => p[1]);
   const pad = 0.08 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
@@ -1102,6 +1102,8 @@ function ScannerScreen({
    * time (the browser's camera is used instead), and the camera while it's the one open.
    */
   const [nativeOpt, setNativeOpt] = useState(savedNativeCamera);
+  /** Whether the app's camera open now was asked to focus on the collector line, as it opened or since. */
+  const lineAsked = useRef<boolean | null>(null);
   const [nativeFailed, setNativeFailed] = useState<string | null>(null);
   const useNative = nativeOpt.on && !nativeFailed && nativeCameraAvailable();
   /**
@@ -1278,6 +1280,12 @@ function ScannerScreen({
     const fps = fpsMeter.fps();
     if (fps != null) timing.detail.fps = fps;
     if (camRef.current.focus != null) timing.detail.focus_pinned = camRef.current.focus;
+    // Whether autofocus followed the card's collector line (LineFocus.java), where the scan asked for it.
+    const lineFocus = nativeCam.current?.described()?.lineFocus;
+    if (lineFocus?.asked) {
+      timing.detail.line_focus = lineFocus.on;
+      if (!lineFocus.on && lineFocus.why) timing.detail.line_focus_why = lineFocus.why.slice(0, 80);
+    }
     // With the placement gate: which try named the card (gate.ts).
     if (gateOn() && timed && gate.attempts > 0) timing.detail.gate_attempts = gate.attempts;
     // The app's own card finder: its median find (ms, native code) and frames found a second; or,
@@ -2249,7 +2257,10 @@ function ScannerScreen({
       };
       // The same sizes the browser's camera is asked for, below.
       const size = identityOnly ? { width: 1920, height: 1080 } : { width: 3840, height: 2160 };
-      const native = openNativeCamera(el, { lens: lensAsked, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel }, { onInfo: told });
+      // Autofocus on the collector line where the scan reads printings (LineFocus.java; Bryan, 27 Nov
+      // 2026: the bottom left corner "always looks a little fuzzy"). A deck or box scan reads none.
+      lineAsked.current = !identityOnly && nativeOpt.lineFocus;
+      const native = openNativeCamera(el, { lens: lensAsked, fps: nativeOpt.fps, ...size, torchLevel: nativeOpt.torchLevel, lineFocus: lineAsked.current }, { onInfo: told });
       nativeCam.current = native;
       native.ready.then(
         (info) => {
@@ -2380,6 +2391,16 @@ function ScannerScreen({
     // lens or capture rate; its flashlight strength changes as it runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraId, useNative, lensAsked, nativeOpt.fps]);
+  // Focusing on the collector line turned on or off in Scan settings while the app's camera runs:
+  // told to the camera as it is, never by opening it again (which starts focus over).
+  const lineFocusWanted = !identityOnly && nativeOpt.lineFocus;
+  useEffect(() => {
+    const native = nativeCam.current;
+    // (The camera just opened with it asked as it is: nothing to change.)
+    if (!native || lineAsked.current === lineFocusWanted) return;
+    lineAsked.current = lineFocusWanted;
+    void native.ready.then(() => native.setLineFocus(lineFocusWanted)).catch(() => undefined);
+  }, [lineFocusWanted]);
 
   /** The look at the found card's printings under way (look.ts): stopped when the card is done with or its printing chosen. */
   const lookRun = useRef<{ seq: number; stop: AbortController } | null>(null);
@@ -2590,7 +2611,7 @@ function ScannerScreen({
    * its border colour may rule printings out too (only for a card found by its art, as before).
    */
   const settle = useCallback(
-    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: { image: RgbaImage; quad: Quad } | null, known?: Known, how: { border?: boolean } = {}) => {
+    async (seq: number, f: Found, query: { art?: string | null; id?: string; name?: string }, read?: Shot | null, known?: Known, how: { border?: boolean } = {}) => {
       const update = (patch: Partial<Found>) => {
         if (foundSeq.current === seq) setFound((cur) => (cur ? { ...cur, ...patch } : cur));
       };
@@ -2698,7 +2719,7 @@ function ScannerScreen({
         const raw = reads.join("\n");
         // How long the read waited after the card was named, and each crop's time (Scanner diagnostics).
         const timed = noteFirstRead(f.timing, times, startedAt, v.kind === "settled");
-        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read!.quad)), verdict: v, ...(skipped ? { skipped: true } : {}), ...timed });
+        f.rec?.frame({ source: "first", reads, ...qualityNote(quality), ...captureNote(read!.capture), cardPx: Math.round(cardHeight(read!.quad)), verdict: v, ...(skipped ? { skipped: true } : {}), ...timed });
         if (v.kind === "settled") {
           const hit = opts.printings.find((p) => p.scryfall_id === v.id)!;
           update({ options: [hit, ...choice.options.filter((p) => p !== hit)], readFirst: 1, chosen: hit, how: "collector", sure: true, settledId: hit.scryfall_id, raw, reading: false });
@@ -2718,7 +2739,7 @@ function ScannerScreen({
 
   /** Show a card recognised by its art. `read` is a sharp view of it for the collector line. */
   const showArt = useCallback(
-    (r: Recognition, top: ArtMatch, read: { image: RgbaImage; quad: Quad } | null, carry: Pick<Found, "shot" | "photo" | "guess" | "unlocked" | "rec" | "timing" | "titled" | "leads"> = {}) => {
+    (r: Recognition, top: ArtMatch, read: Shot | null, carry: Pick<Found, "shot" | "photo" | "guess" | "unlocked" | "rec" | "timing" | "titled" | "leads"> = {}) => {
       stopLook();
       const seq = ++foundSeq.current;
       // Test scan's text reading test, beside whatever the art settles (textTest.ts).
@@ -3155,7 +3176,7 @@ function ScannerScreen({
           // The view of the card kept with it: none where only the card matters and photos aren't saved.
           // (Test scan's text reading test reads that view too, photos or not.)
           const keepsView = !(identityOnly && !savingPhotos()) || !!textTestOn.current;
-          const read = (at: { image: RgbaImage; quad: Quad }) => (keepsView ? at : null);
+          const read = (at: Shot) => (keepsView ? at : null);
           // A card just filed by its name stays held (hold.ts): its art mustn't file it again, by
           // art, by a title read or by the two-frame fallback below.
           const heldName = blockedName.current?.name ?? (checkHeldTitle ? artHold?.name : undefined);
@@ -3808,7 +3829,8 @@ function ScannerScreen({
         reads.push(text);
       }
       // Where the time went (Scanner diagnostics): finding the card, cutting it from the full frame, each crop's read.
-      const note = { source, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * (source === "still" ? 1 : camSrc().fullScale())), zoom: camRef.current.zoom, ...(locateMs != null ? { locateMs: Math.round(locateMs) } : {}), cutMs, ...cropTimesNote(times) };
+      // With what the camera said of the frame (its focus and exposure), so a soft one can be told apart.
+      const note = { source, ...qualityNote(quality), ...captureNote(read.capture), cardPx: Math.round(cardHeight(quad) * (source === "still" ? 1 : camSrc().fullScale())), zoom: camRef.current.zoom, ...(locateMs != null ? { locateMs: Math.round(locateMs) } : {}), cutMs, ...cropTimesNote(times) };
       if (!sharp) {
         ev.markUnread();
         f.rec?.frame({ ...note, reads: [], skipped: true });
@@ -4340,7 +4362,7 @@ function ScannerScreen({
             if (camGen.current !== gen) return;
             ev.add(reads);
             const v = ev.verdict();
-            f.rec?.frame({ source: "later", reads, ...qualityNote(quality), cardPx: Math.round(cardHeight(read.quad)), verdict: v, ...(skipped ? { skipped: true } : {}), ...noteFirstRead(f.timing, times, startedAt, v.kind === "settled") });
+            f.rec?.frame({ source: "later", reads, ...qualityNote(quality), ...captureNote(read.capture), cardPx: Math.round(cardHeight(read.quad)), verdict: v, ...(skipped ? { skipped: true } : {}), ...noteFirstRead(f.timing, times, startedAt, v.kind === "settled") });
             proven();
           })().catch((e: unknown) => console.warn("Couldn't read the collector line for its row", e))),
         );
@@ -4440,7 +4462,7 @@ function ScannerScreen({
             let sharp = true;
             for await (const text of readCollectorLines(view.image, view.quad, await ocrEngine(), { gate: (q) => ((quality = q), (sharp = worthReading(q))), done: (r) => ev.frameDone(r) })) reads.push(text);
             if (ended || !row.finding) return;
-            const note = { source: "later" as const, ...qualityNote(quality), cardPx: Math.round(cardHeight(quad) * camSrc().fullScale()) };
+            const note = { source: "later" as const, ...qualityNote(quality), ...captureNote(view.capture), cardPx: Math.round(cardHeight(quad) * camSrc().fullScale()) };
             if (!sharp) {
               ev.markUnread();
               f.rec?.frame({ ...note, reads: [], skipped: true });

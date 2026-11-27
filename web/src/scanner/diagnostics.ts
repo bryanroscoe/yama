@@ -20,6 +20,7 @@
 // name the card and by which rule, then how its printing was settled and how long that took.
 
 import { accountSignal, api } from "../api";
+import type { AfState, FrameCapture } from "./cameraSource";
 import type { LockRule } from "./fuse";
 import { CARD_SIDE, cardOf, STRIP_MAX, stripOf, SYMBOL_MAX, symbolOf, type Shot } from "./crops";
 import type { Gray, Quad, RgbaImage } from "./types";
@@ -104,6 +105,21 @@ export interface FrameNote {
   /** Hold and read: finding the card in the frame (ms), and cutting it from the camera's full frame. */
   locateMs?: number;
   cutMs?: number;
+  /**
+   * What the camera said of the frame the read was cut from (the app's camera since 27 Nov 2026,
+   * cameraSource.ts `FrameCapture`): its autofocus state, whether autofocus was on the collector
+   * line, where the lens was focused (cm; 255 is that or further) and the exposure's time (ms).
+   */
+  af?: AfState;
+  afLine?: boolean;
+  focusCm?: number;
+  exposureMs?: number;
+}
+
+/** What the camera said of a read's frame, as a frame note keeps it (`af`, `afLine`, `focusCm`, `exposureMs`). */
+export function captureNote(c: FrameCapture | undefined): Pick<FrameNote, "af" | "afLine" | "focusCm" | "exposureMs"> {
+  if (!c) return {};
+  return { ...(c.af ? { af: c.af } : {}), afLine: c.line, ...(c.focusCm != null ? { focusCm: c.focusCm } : {}), ...(c.exposureMs != null ? { exposureMs: c.exposureMs } : {}) };
 }
 
 /** Each crop's time, rounded, as a frame note keeps it (`ocrMs`, and `engineMs` where the engine says). */

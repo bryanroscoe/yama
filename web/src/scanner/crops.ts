@@ -3,6 +3,7 @@
 // resolution in the image (never enlarged). Used by Scanner diagnostics (diagnostics.ts) and scan
 // photos (samples.ts, photoCut.ts). No API or DOM here, so the scan photo worker can use it.
 
+import type { FrameCapture } from "./cameraSource";
 import { warpRegionRgba, type CardRegion } from "./image";
 import type { Quad, RgbaImage } from "./types";
 
@@ -12,6 +13,8 @@ export interface Shot {
   quad: Quad;
   /** A photo, not a camera's frame: no other frame of it will come (its first read isn't skipped for blur). */
   still?: boolean;
+  /** What the camera said of the frame as it took it (the app's camera; cameraSource.ts). */
+  capture?: FrameCapture;
 }
 
 /** The card's bottom edge, corner to corner: both collector areas, with room for a card cut high. */

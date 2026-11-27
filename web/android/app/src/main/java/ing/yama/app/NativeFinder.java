@@ -47,6 +47,8 @@ final class NativeFinder {
         double convertMs;
         /** When the camera delivered it (System.nanoTime). */
         long takenAt;
+        /** What the camera said of the frame as it took it, or null. */
+        LineFocus.Capture capture;
         /** The frame, with `header` bytes left in front of it. */
         byte[] bytes;
     }
@@ -100,6 +102,22 @@ final class NativeFinder {
 
     interface FailureListener {
         void failed(String why);
+    }
+
+    /**
+     * Hears every frame the loop looked at: the card's corners (null without one) in its `w` × `h`
+     * frame, and the camera's frame they were found on (the loop's until its next frame). On the
+     * loop's thread: it must not wait.
+     */
+    interface SeenListener {
+        void seen(double[] quad, int w, int h, ScannerFrames.Frame frame);
+    }
+
+    private volatile SeenListener onSeen;
+
+    /** Who hears each frame looked at (ScannerCameraPlugin's focus on the collector line), or nobody. */
+    void onSeen(SeenListener l) {
+        onSeen = l;
     }
 
     // ---- The art read in the app (stage 4) ----
@@ -501,6 +519,7 @@ final class NativeFinder {
                 s.passes = r.runs.length;
                 s.convertMs = convertMs;
                 s.takenAt = taken;
+                s.capture = f.capture;
                 synchronized (lock) {
                     // Stopped while it looked: this frame isn't the page's any more.
                     if (mine != loopGen) break;
@@ -514,6 +533,8 @@ final class NativeFinder {
                 CardOutlineView o = outline;
                 // (A loop stopped meanwhile draws nothing over the outline its stop cleared.)
                 if (o != null && mine == loopGen) o.see(s.quad, w, h);
+                SeenListener l = onSeen;
+                if (l != null && mine == loopGen) l.seen(s.quad, w, h, f);
             }
         } catch (InterruptedException e) {
             // Stopped.

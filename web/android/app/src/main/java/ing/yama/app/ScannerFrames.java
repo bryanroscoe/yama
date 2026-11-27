@@ -32,6 +32,11 @@ final class ScannerFrames {
         int cropHeight;
         /** Degrees clockwise the buffer must turn to be upright on screen: 0, 90, 180 or 270. */
         int rotation;
+        /** The whole buffer as delivered (the crop is part of it): where the frame lies on the sensor (LineFocus). */
+        int bufferWidth;
+        int bufferHeight;
+        /** What the camera said of this frame as it took it, or null where it didn't (LineFocus.Capture). */
+        LineFocus.Capture capture;
         /** Counts up from 1; 0 is "no frame". */
         long seq;
 
@@ -85,8 +90,13 @@ final class ScannerFrames {
         return out;
     }
 
-    /** The camera thread: keep this frame as the newest. */
+    /** The camera thread: keep this frame as the newest (its buffer no bigger than its crop, and nothing said of its capture). */
     void put(ByteBuffer y, ByteBuffer u, ByteBuffer v, int yRowStride, int uvRowStride, int uvPixelStride, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation) {
+        put(y, u, v, yRowStride, uvRowStride, uvPixelStride, cropLeft, cropTop, cropWidth, cropHeight, rotation, cropLeft + cropWidth, cropTop + cropHeight, null);
+    }
+
+    /** The camera thread: keep this frame as the newest, with its whole buffer's size and what the camera said of it. */
+    void put(ByteBuffer y, ByteBuffer u, ByteBuffer v, int yRowStride, int uvRowStride, int uvPixelStride, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation, int bufferWidth, int bufferHeight, LineFocus.Capture capture) {
         Frame f;
         int filling;
         lock.lock();
@@ -109,6 +119,9 @@ final class ScannerFrames {
         f.cropWidth = cropWidth;
         f.cropHeight = cropHeight;
         f.rotation = ((rotation % 360) + 360) % 360;
+        f.bufferWidth = bufferWidth;
+        f.bufferHeight = bufferHeight;
+        f.capture = capture;
         lock.lock();
         try {
             // Cleared while this frame was being copied: it belongs to the camera that closed.
