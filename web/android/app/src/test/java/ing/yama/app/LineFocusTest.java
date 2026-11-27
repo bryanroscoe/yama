@@ -218,6 +218,10 @@ public class LineFocusTest {
         assertEquals(true, sent.has(a, 2000 + LineFocus.Sent.KEEP_MS));
         assertEquals(false, sent.has(a, 2001 + LineFocus.Sent.KEEP_MS));
         assertEquals(true, sent.has(new int[] { 300, 300, 400, 400 }, 9000));
+        // Which one it is: the frame's request is matched to the region it asked for.
+        assertArrayEquals(new int[] { 300, 300, 400, 400 }, sent.match(new int[] { 302, 300, 400, 400 }, 2100));
+        assertArrayEquals(a, sent.match(new int[] { 100, 100, 200, 200 }, 2100));
+        assertNull(sent.match(new int[] { 0, 0, 50, 50 }, 2100));
         // Cleared: the same.
         sent.end(10_000);
         assertEquals(true, sent.has(new int[] { 300, 300, 400, 400 }, 10_500));

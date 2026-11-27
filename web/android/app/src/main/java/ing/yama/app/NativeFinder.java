@@ -106,11 +106,16 @@ final class NativeFinder {
 
     /**
      * Hears every frame the loop looked at: the card's corners (null without one) in its `w` × `h`
-     * frame, and the camera's frame they were found on (the loop's until its next frame). On the
-     * loop's thread: it must not wait.
+     * frame, the camera's frame they were found on (the loop's until its next frame), and the loop's
+     * own token (`isLoop` says whether it still runs). On the loop's thread: it must not wait.
      */
     interface SeenListener {
-        void seen(double[] quad, int w, int h, ScannerFrames.Frame frame);
+        void seen(double[] quad, int w, int h, ScannerFrames.Frame frame, int loop);
+    }
+
+    /** Whether the loop that gave `loop` to a SeenListener is still the one running: not stopped, nor replaced. */
+    boolean isLoop(int loop) {
+        return running && loop == loopGen;
     }
 
     private volatile SeenListener onSeen;
@@ -534,7 +539,7 @@ final class NativeFinder {
                 // (A loop stopped meanwhile draws nothing over the outline its stop cleared.)
                 if (o != null && mine == loopGen) o.see(s.quad, w, h);
                 SeenListener l = onSeen;
-                if (l != null && mine == loopGen) l.seen(s.quad, w, h, f);
+                if (l != null && mine == loopGen) l.seen(s.quad, w, h, f, mine);
             }
         } catch (InterruptedException e) {
             // Stopped.

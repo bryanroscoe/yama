@@ -362,12 +362,17 @@ final class LineFocus {
 
         /** Whether `reported` is the region in force or one ended in the last {@link #KEEP_MS} (overlapping it by half or more). */
         synchronized boolean has(int[] reported, long nowMs) {
-            if (reported == null) return false;
+            return match(reported, nowMs) != null;
+        }
+
+        /** The region sent that `reported` is (in force, or ended in the last {@link #KEEP_MS}, overlapping by half or more), or null. */
+        synchronized int[] match(int[] reported, long nowMs) {
+            if (reported == null) return null;
             for (int i = 0; i < Math.min(count, SIZE); i++) {
                 if (rects[i] == null || (endedAt[i] >= 0 && nowMs - endedAt[i] > KEEP_MS)) continue;
-                if (overlap(rects[i], reported) >= 0.5) return true;
+                if (overlap(rects[i], reported) >= 0.5) return rects[i];
             }
-            return false;
+            return null;
         }
 
         synchronized void clear() {

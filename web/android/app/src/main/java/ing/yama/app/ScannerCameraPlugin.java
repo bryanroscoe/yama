@@ -192,11 +192,28 @@ public class ScannerCameraPlugin extends Plugin {
     /** How many times the region was moved for this camera. */
     private volatile int lineMoves;
     /**
-     * Counts the finder's runs (each start and stop, and each camera): a card seen by a run since
-     * stopped is dropped when it reaches the main thread, so it can't move or clear a region the
-     * held card's frames have put in place since (Codex re-check of #218).
+     * The finder's newest observation for the main thread (its loop's token with it), and whether
+     * one is posted: a busy main thread takes only the newest, never a queue of old ones.
      */
-    private volatile int finderRun;
+    private final java.util.concurrent.atomic.AtomicReference<LineSeen> lineSeenNext = new java.util.concurrent.atomic.AtomicReference<>();
+    private final java.util.concurrent.atomic.AtomicBoolean lineSeenPosted = new java.util.concurrent.atomic.AtomicBoolean();
+    /** The crop region last changed (ms): a frame without its own capture just after isn't mapped with the new one (a cropping zoom under way). */
+    private volatile long scalerCropAt;
+
+    /** One frame the finder looked at, for the main thread: which loop, the card's upright box and its region on the sensor (both null without a card). */
+    private static final class LineSeen {
+        final Opened opened;
+        final int loop;
+        final double[] box;
+        final int[] rect;
+
+        LineSeen(Opened opened, int loop, double[] box, int[] rect) {
+            this.opened = opened;
+            this.loop = loop;
+            this.box = box;
+            this.rect = rect;
+        }
+    }
     /** The regions sent last, which a capture's reported region is matched against (`afLine`). */
     private final LineFocus.Sent sentRects = new LineFocus.Sent();
     /** The camera's crop region as its last capture result said (left, top, right, bottom), or null. */
@@ -518,7 +535,6 @@ public class ScannerCameraPlugin extends Plugin {
                     if (outlineView != null) outlineView.show(outline);
                 }
                 if (reset) finder.resetTracking();
-                if (on != null) finderRun++;
                 if (Boolean.TRUE.equals(on)) {
                     if (camera == null) throw new IllegalStateException("The camera isn't open");
                     // One that failed stays stopped: the status says why, and the page's own finder runs.
@@ -881,7 +897,6 @@ public class ScannerCameraPlugin extends Plugin {
         frameShape = null;
         interopWrites = 0;
         pointStarted = false;
-        finderRun++;
 
         CameraSelector.Builder chosenCamera = new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK);
         if (o.physicalId != null) chosenCamera.setPhysicalCameraId(o.physicalId);
@@ -1266,7 +1281,7 @@ public class ScannerCameraPlugin extends Plugin {
         // The card held while its sheet is open, where the page found it (`lineQuad`, its corners as
         // shares of the frame): the app's finder rests then, so the page says where the card is.
         JSArray held = call.getArray("lineQuad");
-        if (held != null) followPage(held);
+        if (held != null) followPage(held, call.getDouble("lineAspect", 0.0));
         JSObject point = call.getObject("point");
         if (point != null && "continuous".equals(focusMode)) {
             Display display = ViewCompat.getDisplay(bridge.getWebView());
@@ -1290,29 +1305,42 @@ public class ScannerCameraPlugin extends Plugin {
 
     // ---- Focus on the collector line ----
 
-    /** A region nobody has seen its card for this long is cleared: the finder at rest and no card held, so nothing keeps it where the card is. */
-    static final long STALE_MS = 3000;
+    /**
+     * A region nobody has seen its card for this long is cleared: the finder at rest and no card
+     * held, so nothing keeps it where the card is. Longer than a slow hold-and-read turn (a locate,
+     * a cut and four crops read can take 2 to 3 s on a busy phone), so it never lapses mid-read.
+     */
+    static final long STALE_MS = 6000;
 
     /**
      * The finder's thread, after each frame: where the card it sees puts the focus region on the
      * sensor, worked out from this frame's own geometry, handed to the main thread, which alone
      * decides whether the region moves (LineFocus). Never waits.
      */
-    private void lineSeen(double[] quad, int w, int h, ScannerFrames.Frame f) {
+    private void lineSeen(double[] quad, int w, int h, ScannerFrames.Frame f, int loop) {
         Opened o = opened;
         if (!lineFocusAsked || o == null) return;
-        int run = finderRun;
         double[] box = quad == null ? null : LineFocus.uprightBox(quad, w, h);
         int[] rect = null;
         if (box != null) {
             LineFocus.Capture c = captures.exact(f.timestamp);
+            // Without this frame's own crop region just after it changed (a cropping zoom under
+            // way), which one the frame was made from isn't known: it says nothing.
+            if ((c == null || c.crop == null) && SystemClock.elapsedRealtime() - scalerCropAt < 500) return;
             rect = LineFocus.sensorRect(box, geometry(o, f.bufferWidth, f.bufferHeight, f.cropLeft, f.cropTop, f.cropWidth, f.cropHeight, f.rotation, c != null && c.crop != null ? c.crop : scalerCrop));
             // A card whose place on the sensor isn't known: this frame says nothing.
             if (rect == null) return;
         }
-        double[] at = box;
-        int[] to = rect;
-        main.post(() -> considerLine(o, run, at, to));
+        lineSeenNext.set(new LineSeen(o, loop, box, rect));
+        if (lineSeenPosted.compareAndSet(false, true)) {
+            main.post(() -> {
+                lineSeenPosted.set(false);
+                LineSeen seen = lineSeenNext.getAndSet(null);
+                // (Only a loop still running: one stopped since, its frame waiting here, can't move
+                // or clear the region the held card has put in place; Codex re-check of #218.)
+                if (seen != null && finder.isLoop(seen.loop)) considerLine(seen.opened, seen.box, seen.rect);
+            });
+        }
     }
 
     /**
@@ -1323,17 +1351,24 @@ public class ScannerCameraPlugin extends Plugin {
      * frame's geometry: the turn or crop changing between the page's frame and that one moves the
      * region on the sensor, which the next frame's corners then put right.
      */
-    private void followPage(JSArray held) {
+    private void followPage(JSArray held, double aspect) {
         Opened o = opened;
         int[] shape = frameShape;
-        if (!lineFocusAsked || o == null || shape == null || held.length() < 8) return;
+        // While the finder runs it follows the card itself: a held card's corners arriving late,
+        // after the sheet closed, are the card that was (Codex re-check of #218).
+        if (!lineFocusAsked || o == null || shape == null || held.length() < 8 || finder.running()) return;
+        // The page's frame and the newest aren't the same shape (the phone turned meanwhile): its
+        // corners would land elsewhere on the sensor, and the next frame's are on their way.
+        int uw = shape[6] % 180 == 0 ? shape[4] : shape[5];
+        int uh = shape[6] % 180 == 0 ? shape[5] : shape[4];
+        if (!(aspect > 0) || uh <= 0 || Math.abs(aspect - uw / (double) uh) > 0.02 * aspect) return;
         double[] quad = new double[8];
         for (int i = 0; i < 8; i++) quad[i] = held.optDouble(i, Double.NaN);
         double[] box = LineFocus.uprightBox(quad, 1, 1);
         if (box == null) return;
         int[] rect = LineFocus.sensorRect(box, geometry(o, shape[0], shape[1], shape[2], shape[3], shape[4], shape[5], shape[6], scalerCrop));
         if (rect == null) return;
-        considerLine(o, -1, box, rect);
+        considerLine(o, box, rect);
     }
 
     private static LineFocus.Geometry geometry(Opened o, int bufferWidth, int bufferHeight, int cropLeft, int cropTop, int cropWidth, int cropHeight, int rotation, int[] crop) {
@@ -1342,14 +1377,13 @@ public class ScannerCameraPlugin extends Plugin {
 
     /**
      * The main thread: a frame's card (its upright box and the region it puts on the sensor), or
-     * none (null), from the finder's run `run` or the page's held card (-1). Every decision and
+     * none (null), from the finder's running loop or the page's held card. Every decision and
      * camera write happens here, and the follower is told only what is done: a frame the camera
-     * can't take now (closed, focus held, a settings write settling, a finder run since stopped)
-     * changes nothing, and the next frame tries again.
+     * can't take now (closed, focus held, a settings write settling) changes nothing, and the next
+     * frame tries again.
      */
-    private void considerLine(Opened o, int run, double[] box, int[] rect) {
+    private void considerLine(Opened o, double[] box, int[] rect) {
         if (camera == null || opened != o || !lineFocusAsked || lineFocusWhy(o) != null) return;
-        if (run >= 0 && run != finderRun) return;
         if (interopWrites > 0) return;
         double[] at = rect == null ? null : new double[] { rect[0], rect[1], rect[2], rect[3] };
         double[] to = follower.decide(at, SystemClock.elapsedRealtime());
@@ -1456,7 +1490,10 @@ public class ScannerCameraPlugin extends Plugin {
         if (cropped != null) {
             int[] known = scalerCrop;
             if (known != null && known[0] == cropped.left && known[1] == cropped.top && known[2] == cropped.right && known[3] == cropped.bottom) crop = known;
-            else scalerCrop = crop = new int[] { cropped.left, cropped.top, cropped.right, cropped.bottom };
+            else {
+                if (known != null) scalerCropAt = SystemClock.elapsedRealtime();
+                scalerCrop = crop = new int[] { cropped.left, cropped.top, cropped.right, cropped.bottom };
+            }
         }
         Long at = result.get(CaptureResult.SENSOR_TIMESTAMP);
         if (at == null) return;
@@ -1466,19 +1503,35 @@ public class ScannerCameraPlugin extends Plugin {
         long now = SystemClock.elapsedRealtime();
         // Asked for, and what the camera says it used (it may trim or move a region); unknown where
         // its result doesn't say (Codex re-check of #218: the request alone isn't the camera's word).
-        boolean asked = onLine(request.get(CaptureRequest.CONTROL_AF_REGIONS), now);
+        // The line's region this frame asked for, and whether the region the camera reports using
+        // is that one, not merely another recent one (Codex re-check of #218).
+        int[] asked = lineRegion(request.get(CaptureRequest.CONTROL_AF_REGIONS), now);
         MeteringRectangle[] used = result.get(CaptureResult.CONTROL_AF_REGIONS);
-        Boolean confirmed = used == null ? null : onLine(used, now);
+        Boolean confirmed = used == null ? null : asked != null && usedOn(used, asked);
         Opened o = opened;
         // In dioptres only where the lens says it is calibrated, at least roughly (Codex review of #218).
         float d = diopters == null || o == null || !o.focusCalibrated ? -1 : diopters;
-        captures.note(at, new LineFocus.Capture(af == null ? -1 : af, d, exposure == null ? 0 : exposure, confirmed, asked, crop));
+        captures.note(at, new LineFocus.Capture(af == null ? -1 : af, d, exposure == null ? 0 : exposure, confirmed, asked != null, crop));
     }
 
-    /** Whether one of these regions is a region sent for the line, in force or just replaced (`sentRects`). */
-    private boolean onLine(MeteringRectangle[] regions, long now) {
-        if (regions == null) return false;
-        for (MeteringRectangle m : regions) if (m.getMeteringWeight() > 0 && sentRects.has(new int[] { m.getX(), m.getY(), m.getX() + m.getWidth(), m.getY() + m.getHeight() }, now)) return true;
+    private static int[] rectOf(MeteringRectangle m) {
+        return new int[] { m.getX(), m.getY(), m.getX() + m.getWidth(), m.getY() + m.getHeight() };
+    }
+
+    /** The region sent for the line (in force or just replaced) that one of a request's regions is, or null. */
+    private int[] lineRegion(MeteringRectangle[] regions, long now) {
+        if (regions == null) return null;
+        for (MeteringRectangle m : regions) {
+            if (m.getMeteringWeight() <= 0) continue;
+            int[] sent = sentRects.match(rectOf(m), now);
+            if (sent != null) return sent;
+        }
+        return null;
+    }
+
+    /** Whether the camera reports using `asked` (overlapping it by half or more). */
+    private static boolean usedOn(MeteringRectangle[] used, int[] asked) {
+        for (MeteringRectangle m : used) if (m.getMeteringWeight() > 0 && LineFocus.overlap(rectOf(m), asked) >= 0.5) return true;
         return false;
     }
 

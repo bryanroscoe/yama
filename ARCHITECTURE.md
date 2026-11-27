@@ -3700,7 +3700,7 @@ Decided: in collection scans the Android app's camera moves its autofocus region
 `CONTROL_AF_REGIONS`) onto the card's collector corner as the app's card finder sees the card, or as the
 hold finds the card while its sheet is open and the finder rests, mapped to the sensor in native code
 (`LineFocus.java`), and leaves autofocus in its continuous mode: no focus scan, no lens held. Only with the
-lens on Automatic and focus not held by hand; a region nobody keeps up for 3 s lapses; a per-device switch
+lens on Automatic and focus not held by hand; a region nobody keeps up for 6 s lapses; a per-device switch
 in Scan settings turns it off. Each frame reply now carries
 what the camera said of that frame (autofocus state, focus distance, exposure time, whether the region was
 on the line) in its header's four spare bytes, and Scanner diagnostics keep it with each collector-line read.

@@ -3915,7 +3915,10 @@ function ScannerScreen({
       try {
         hiCanvasRef.current ??= document.createElement("canvas");
         const located = performance.now();
-        const quad = await locate(v, v.videoWidth, v.videoHeight, v);
+        // The frame's size as the card is looked for in it: the corners are in its pixels.
+        const frameW = v.videoWidth;
+        const frameH = v.videoHeight;
+        const quad = await locate(v, frameW, frameH, v);
         const locateMs = performance.now() - located;
         if (stop) return;
         seeCard(quad, v);
@@ -3926,7 +3929,7 @@ function ScannerScreen({
           // The app's camera focuses on this card's collector line (LineFocus.java): its finder
           // rests while the card's sheet is open, so the hold says where the card is (Codex review
           // of #218: the region would otherwise lapse just when these frames are read).
-          if (lineAsked.current) nativeCam.current?.followLine(quad);
+          if (lineAsked.current) nativeCam.current?.followLine(quad, frameW, frameH);
           // Focus is left to the camera's own continuous autofocus (Bryan, 25 Nov 2026: "I'm
           // guessing it's a focusing issue"). Pointing it at the collector corner, as the scanner
           // did from 15 Nov 2026, ran a focus scan and held the lens there for 5 s. In Bryan's

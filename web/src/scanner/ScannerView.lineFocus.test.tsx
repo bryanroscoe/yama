@@ -49,8 +49,8 @@ const look = vi.hoisted(() => ({ loaded: "off", scores: {} as Record<string, num
 const quality = vi.hoisted(() => ({ sharp: false }));
 vi.mock("./quality", async (original) => ({ ...(await original<typeof import("./quality")>()), worthReading: () => quality.sharp }));
 
-/** The app's camera, faked: whether it was asked to focus on the line as it opened, and each held card's corners it was told. */
-const native = vi.hoisted(() => ({ opened: [] as (boolean | undefined)[], follows: [] as Quad[] }));
+/** The app's camera, faked: whether it was asked to focus on the line as it opened, and each held card's corners it was told, with their frame's size. */
+const native = vi.hoisted(() => ({ opened: [] as (boolean | undefined)[], follows: [] as Quad[], sizes: [] as [number, number][] }));
 vi.mock("./nativeCamera", async (original) => {
   const real = await original<typeof import("./nativeCamera")>();
   return {
@@ -75,7 +75,10 @@ vi.mock("./nativeCamera", async (original) => {
         described: () => ({ lineFocus: { asked: !!req.lineFocus, on: !!req.lineFocus, moves: 1 } }),
         setTorchLevel: async () => undefined,
         setLineFocus: async () => undefined,
-        followLine: (quad: Quad) => void native.follows.push(quad),
+        followLine: (quad: Quad, w: number, h: number) => {
+          native.follows.push(quad);
+          native.sizes.push([w, h]);
+        },
         bench: async () => [],
         found: () => null,
         setFinder: async () => ({ loaded: false, on: false }),
@@ -197,7 +200,7 @@ beforeEach(() => {
   Object.assign(cam, { card: "signet", printings: 3, ill: cam.ill + 1, title: "", line: "C 0145\nWOC • EN", collectorReads: 0 });
   quality.sharp = false;
   Object.assign(look, { loaded: "off", scores: {}, asked: 0 });
-  Object.assign(native, { opened: [], follows: [] });
+  Object.assign(native, { opened: [], follows: [], sizes: [] });
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -229,6 +232,8 @@ describe("focusing on the held card's collector line", { timeout: 20_000 }, () =
     // Every view is too soft to read, so the hold goes on, and each of its frames says where the card is.
     await until(() => (native.follows.length >= 2 ? true : null), "the held card's corners, twice");
     expect(native.follows[0]).toEqual(QUAD);
+    // In the pixels of the frame it was found in: the app's 640 x 1138.
+    expect(native.sizes[0]).toEqual([640, 1138]);
     expect(cam.collectorReads).toBe(0);
   });
 

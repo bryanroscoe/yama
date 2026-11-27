@@ -299,10 +299,10 @@ describe("focusing on the collector line (27 Nov 2026)", () => {
     };
     const cam = openNativeCamera(document.createElement("canvas"), { lens: "auto", fps: 30, width: 3840, height: 2160, lineFocus: true }, { plugin: slow, channel, settleMs: 0 });
     await cam.ready;
-    // The canvas is 360 x 640: corners in its pixels become shares of it.
-    cam.followLine([[36, 64], [324, 64], [324, 576], [36, 576]]);
-    cam.followLine([[0, 0], [1, 0], [1, 1], [0, 1]]);
-    cam.followLine([[18, 32], [342, 32], [342, 608], [18, 608]]);
+    // Found in a 360 x 640 frame: corners in its pixels become shares of it, with its shape.
+    cam.followLine([[36, 64], [324, 64], [324, 576], [36, 576]], 360, 640);
+    cam.followLine([[0, 0], [1, 0], [1, 1], [0, 1]], 360, 640);
+    cam.followLine([[18, 32], [342, 32], [342, 608], [18, 608]], 360, 640);
     await new Promise((r) => setTimeout(r, 0));
     release();
     await new Promise((r) => setTimeout(r, 10));
@@ -310,8 +310,9 @@ describe("focusing on the collector line (27 Nov 2026)", () => {
       [0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9],
       [0.05, 0.05, 0.95, 0.05, 0.95, 0.95, 0.05, 0.95],
     ]);
+    expect(sets.map((x) => x.lineAspect)).toEqual([360 / 640, 360 / 640]);
     cam.close();
-    cam.followLine([[0, 0], [1, 0], [1, 1], [0, 1]]);
+    cam.followLine([[0, 0], [1, 0], [1, 1], [0, 1]], 360, 640);
     await new Promise((r) => setTimeout(r, 0));
     expect(sets).toHaveLength(2);
   });
