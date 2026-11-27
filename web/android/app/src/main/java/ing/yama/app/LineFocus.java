@@ -386,7 +386,12 @@ final class LineFocus {
      * with its own. Written on the camera's capture thread, read as frames are handed to the page.
      */
     static final class Captures {
-        private static final int SIZE = 16;
+        /**
+         * About a second of results at 60 frames a second (two at 30): a frame reaches the page only
+         * after it is scaled and the finder has looked at it, which a busy phone has taken up to a
+         * quarter of a second for, and its result must still be here then (Codex review of #218).
+         */
+        static final int SIZE = 64;
         private final long[] at = new long[SIZE];
         private final Capture[] what = new Capture[SIZE];
         private int count;

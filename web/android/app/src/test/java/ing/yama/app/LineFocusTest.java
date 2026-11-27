@@ -171,13 +171,15 @@ public class LineFocusTest {
         // Not reported (yet): nothing, never the one before or after (Codex review of #218).
         assertNull(c.exact(150));
         assertNull(c.exact(250));
-        // Only the last 16 are kept.
-        for (int i = 0; i < 20; i++) c.note(1000 + i, new LineFocus.Capture(i % 7, 5, 1, false));
-        assertEquals(19 % 7, c.exact(1019).afState);
+        // About a second's worth at 60 a second is kept, a slow finder frame's included; no more.
+        int n = LineFocus.Captures.SIZE;
+        for (int i = 0; i < n + 4; i++) c.note(1000 + i, new LineFocus.Capture(i % 7, 5, 1, false));
+        assertEquals((n + 3) % 7, c.exact(1000 + n + 3).afState);
+        assertEquals(4 % 7, c.exact(1004).afState);
         assertNull(c.exact(100));
         assertNull(c.exact(1003));
         c.clear();
-        assertNull(c.exact(1019));
+        assertNull(c.exact(1000 + n + 3));
     }
 
     @Test
