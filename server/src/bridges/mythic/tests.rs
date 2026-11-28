@@ -705,7 +705,7 @@ async fn account_deletion_purges_other_owners_import_snapshots_in_every_status()
     let member = guest["id"].as_str().unwrap();
     sqlx::query("UPDATE playgroup_members SET user_id=?, guest_name=NULL WHERE id=?").bind(&subject).bind(member).execute(&st.pool).await.unwrap();
     for status in ["pending","applied","discarded"] {
-        for (kind, payload) in [("direct",json!({"subjects":[subject]})),("member",json!({"member":member}))] {
+        for (kind, payload) in [("direct",json!({"subjects":[subject]})),("unrelated",json!({"subjects":[owner],"note":subject,"tag":member,"external_id":subject}))] {
             sqlx::query("INSERT INTO assistant_changes (id,owner_id,kind,summary,detail,payload,via,status,created_at) VALUES (?,?, 'import_mythic_game','Subject','Subject',?,'key',?,'now')")
                 .bind(format!("{status}-{kind}")).bind(&owner).bind(payload.to_string()).bind(status).execute(&st.pool).await.unwrap();
         }
@@ -713,7 +713,12 @@ async fn account_deletion_purges_other_owners_import_snapshots_in_every_status()
     let mut tx = st.pool.begin().await.unwrap();
     crate::admin::delete::delete_rows(&mut tx, &subject).await.unwrap();
     tx.commit().await.unwrap();
-    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM assistant_changes WHERE owner_id=?").bind(owner).fetch_one(&st.pool).await.unwrap(),0);
+    let kept: Vec<(String, String)> = sqlx::query_as("SELECT id,payload FROM assistant_changes WHERE owner_id=? ORDER BY id").bind(&owner).fetch_all(&st.pool).await.unwrap();
+    assert_eq!(kept.len(),3);
+    for (id, payload) in kept {
+        assert!(id.ends_with("-unrelated"));
+        assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(),json!({"subjects":[owner],"note":subject,"tag":member,"external_id":subject}));
+    }
 }
 
 #[tokio::test]
