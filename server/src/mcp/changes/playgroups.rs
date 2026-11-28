@@ -33,7 +33,13 @@ async fn snapshot(conn: &mut SqliteConnection, owner: &str, args: &Value) -> App
             .await?;
     let group = group.ok_or(AppError::NotFound("owned playgroup"))?;
     let names = strings(args, "members", 100)?;
-    let all = crate::playgroups::members(&mut *conn, source).await?;
+    let mut all = crate::playgroups::members(&mut *conn, source).await?;
+    // Older groups predate the owner's membership row. Ownership still makes them a member.
+    if !all.iter().any(|m| m.user_id.as_deref() == Some(owner)) {
+        let name: String = sqlx::query_scalar("SELECT display_name FROM users WHERE id=? AND disabled_at IS NULL")
+            .bind(owner).fetch_one(&mut *conn).await?;
+        all.push(crate::playgroups::Member { id: String::new(), user_id: Some(owner.into()), guest_name: None, display_name: name, handle: None });
+    }
     let mut members = Vec::new();
     for name in names {
         let matches: Vec<_> = all
@@ -140,6 +146,7 @@ pub(crate) async fn split(
         before["source_name"].as_str().unwrap(),
         strings(args, "games", 200)?.join(", ")
     );
+    let subjects: Vec<_> = before["members"].as_array().unwrap().iter().map(|m| m["user_id"].clone()).collect();
     stage(
         st,
         user,
@@ -149,14 +156,13 @@ pub(crate) async fn split(
             kind: "split_playgroup",
             summary,
             detail,
-            payload: json!({"name":name,"group_id":new_id(),"args":args,"before":before}),
+            payload: json!({"name":name,"group_id":new_id(),"args":args,"before":before,"subjects":subjects}),
         },
     )
     .await
 }
 
 pub(super) async fn apply(st: &AppState, user: &User, id: &str, p: &Value) -> AppResult<Value> {
-    st.limits.playgroup_writes.check_user(user)?;
     let group = arg::text(p, "group_id")?;
     let result =
         json!({"label":format!("Created {} and moved games",arg::text(p,"name")?),"link":"/group"});
@@ -164,6 +170,7 @@ pub(super) async fn apply(st: &AppState, user: &User, id: &str, p: &Value) -> Ap
     if !first_apply(&mut tx, &user.id, id, "split_playgroup").await? {
         return Ok(result);
     }
+    st.limits.playgroup_writes.check_user(user)?;
     let before = snapshot(&mut tx, &user.id, &p["args"]).await?;
     if before != p["before"] {
         return Err(AppError::Conflict(
@@ -399,4 +406,53 @@ mod tests {
         bad["members"] = json!(["owner"]);
         assert!(split(&st, &u, &Via::Key, &bad).await.is_err());
     }
+    #[tokio::test]
+    async fn an_applied_retry_works_after_exhausting_the_write_allowance() {
+        let (st, u, args) = fixture().await;
+        let (id, p) = proposal(&st, &u, &args).await;
+        let result = apply(&st, &u, &id, &p).await.unwrap();
+        while st.limits.playgroup_writes.check_user(&u).is_ok() {}
+        assert_eq!(apply(&st, &u, &id, &p).await.unwrap(), result);
+    }
+
+    #[tokio::test]
+    async fn legacy_owners_without_member_rows_can_split() {
+        let (st, u, args) = fixture().await;
+        sqlx::query("UPDATE game_seats SET member_id=NULL WHERE member_id='a'").execute(&st.pool).await.unwrap();
+        sqlx::query("DELETE FROM playgroup_members WHERE id='a'").execute(&st.pool).await.unwrap();
+        let (id, p) = proposal(&st, &u, &args).await;
+        apply(&st, &u, &id, &p).await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM playgroup_members WHERE user_id=?").bind(&u.id).fetch_one(&st.pool).await.unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_selected_account_purges_split_proposals_in_every_state() {
+        for status in ["pending", "applied", "discarded"] {
+            let (st, u, args) = fixture().await;
+            let (id, _) = proposal(&st, &u, &args).await;
+            sqlx::query("UPDATE assistant_changes SET status=? WHERE id=?").bind(status).bind(&id).execute(&st.pool).await.unwrap();
+            let friend: String = sqlx::query_scalar("SELECT user_id FROM playgroup_members WHERE id='b'").fetch_one(&st.pool).await.unwrap();
+            let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+            crate::admin::delete::delete_rows(&mut tx, &friend).await.unwrap();
+            tx.commit().await.unwrap();
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assistant_changes WHERE id=?").bind(id).fetch_one(&st.pool).await.unwrap();
+            assert_eq!(count, 0, "{status} proposal retains no deleted subject data");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_deleted_subject_cannot_be_restaged_from_a_stale_snapshot() {
+        let (st, u, args) = fixture().await;
+        let (_, payload) = proposal(&st, &u, &args).await;
+        let friend: String = sqlx::query_scalar("SELECT user_id FROM playgroup_members WHERE id='b'").fetch_one(&st.pool).await.unwrap();
+        let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        crate::admin::delete::delete_rows(&mut tx, &friend).await.unwrap();
+        tx.commit().await.unwrap();
+        let result = stage(&st, &u, &Via::Key, &args, Staged { kind: "split_playgroup", summary: "old subject".into(), detail: "old subject".into(), payload }).await;
+        assert!(matches!(result, Err(AppError::Conflict(_))));
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assistant_changes").fetch_one(&st.pool).await.unwrap();
+        assert_eq!(count, 0);
+    }
+
 }

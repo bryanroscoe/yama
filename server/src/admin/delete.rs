@@ -388,6 +388,11 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
     let mut r = DeleteReport::default();
     let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = ?").bind(id).fetch_one(&mut **tx).await?;
 
+    // Split proposals keep private snapshots of other members, even after apply/discard.
+    // Remove the whole proposal when any selected subject leaves, before anonymizing rows.
+    r.rows_deleted += sqlx::query("DELETE FROM assistant_changes WHERE kind='split_playgroup' AND EXISTS (SELECT 1 FROM json_tree(assistant_changes.payload) WHERE type='text' AND atom=?)")
+        .bind(id).execute(&mut **tx).await?.rows_affected();
+
     // ── playgroups ─────────────────────────────────────────────────────────
     // Its own: pass each to the longest-standing other account member, or delete it.
     let owned: Vec<String> = sqlx::query_scalar("SELECT id FROM playgroups WHERE owner_id = ?").bind(id).fetch_all(&mut **tx).await?;
