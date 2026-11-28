@@ -321,6 +321,8 @@ Join codes (the owner can make a new one, and removing an account changes it), g
 
 Since 21 Nov 2026: head-to-head and archnemesis show whenever knockouts were recorded, with or without counted turns; the game length at the top is the typical one (the median of timed games); commanders with too few games fold behind Show more; a guest can't take a name someone in the group already has, guest or member; and the empty page says what a playgroup is, labels its two fields and explains a wrong code.
 
+The MCP `split_playgroup` stages a subset of an owned playgroup and explicit finished in-person games recorded by its owner, including ungrouped games. Applying creates the new group and remaps its seats atomically without changing results or events. The audited move fences older offline writes and disables app history editing for those games.
+
 ### Game export
 
 Every finished game you played or recorded, or a whole playgroup's, as JSON (shaped for commander-decks' `data/games.json`) or CSV (one row per seat), with each game's format and starting life and whether the computer played a seat. Dates are the local day in your time zone; other people's deck names and notes stay private.

@@ -394,6 +394,10 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
         SELECT 1 FROM json_tree(assistant_changes.payload) j WHERE j.atom = ?1
         OR j.atom IN (SELECT id FROM playgroup_members WHERE user_id = ?1))")
         .bind(id).execute(&mut **tx).await?;
+    // Split proposals keep private snapshots of other members, even after apply/discard.
+    // Remove the whole proposal when any selected subject leaves, before anonymizing rows.
+    r.rows_deleted += sqlx::query("DELETE FROM assistant_changes WHERE kind='split_playgroup' AND EXISTS (SELECT 1 FROM json_tree(assistant_changes.payload) WHERE type='text' AND atom=?)")
+        .bind(id).execute(&mut **tx).await?.rows_affected();
 
     // ── playgroups ─────────────────────────────────────────────────────────
     // Its own: pass each to the longest-standing other account member, or delete it.

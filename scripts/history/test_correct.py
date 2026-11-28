@@ -55,6 +55,14 @@ class Corrections(unittest.TestCase):
     def scalar(self, sql):
         return self.c.execute(sql).fetchone()[0]
 
+    def test_split_audit_refuses_player_only_undo(self):
+        self.c.execute("INSERT INTO history_corrections(id,owner_id,actor,reason,request,changes,subjects,created_at) VALUES ('batch1','bryan','mcp','split','{}',?, '[]','now')",
+                       (json.dumps([{'game_id': 'g1', 'kind': 'playgroup'}]),))
+        self.c.commit()
+        with self.assertRaisesRegex(ValueError, 'cannot be undone'):
+            self.apply(self.undo())
+        self.assertEqual(self.logs(), 1)
+
     def logs(self):
         return self.scalar('SELECT count(*) FROM history_corrections')
 

@@ -35,6 +35,8 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 mod preview;
+mod playgroups;
+pub(super) use playgroups::split as split_playgroup;
 use preview::ChangePreview;
 
 /// Changes one account may have waiting at once.
@@ -275,7 +277,11 @@ async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -
     };
     let stored = sqlx::query(
         "INSERT INTO assistant_changes (id, owner_id, kind, summary, detail, payload, via, conversation_id, message_id, created_at, op_id, op_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM json_each(?, '$.subjects') subject
+           WHERE NOT EXISTS (SELECT 1 FROM users WHERE id=subject.value)
+         )",
     )
     .bind(&id)
     .bind(&user.id)
@@ -289,9 +295,13 @@ async fn stage(st: &AppState, user: &User, via: &Via, args: &Value, s: Staged) -
     .bind(now())
     .bind(op.as_ref().map(|o| o.id))
     .bind(op.as_ref().map(|o| o.hash.as_str()))
+    // Persist subject-bearing snapshots only while every subject still exists. The single
+    // write statement serializes with account deletion, closing snapshot-to-stage races.
+    .bind(s.payload.to_string())
     .execute(pool)
     .await;
     match (stored, &op) {
+        (Ok(saved), _) if saved.rows_affected() == 0 => return Err(AppError::Conflict("A selected account was deleted; stage a fresh change".into())),
         (Ok(_), _) => {}
         // Two calls with one op id at once: the index lets one in, and the other answers with it.
         (Err(e), Some(op)) if e.as_database_error().is_some_and(|d| d.is_unique_violation()) => {
@@ -3297,6 +3307,7 @@ pub(super) mod staging {
     pub const ADD_WISH: Staging = Staging { kind: "add_wish", apply: |st, user, change, p| Box::pin(apply_add_wish(st, user, change.id, p)) };
     pub const UPDATE_DECK: Staging = Staging { kind: "update_deck", apply: |st, user, _, p| Box::pin(apply_update_deck(st, user, p)) };
     pub const REMOVE_WISH: Staging = Staging { kind: "remove_wish", apply: |st, user, _, p| Box::pin(apply_remove_wish(st, user, p)) };
+    pub const SPLIT_PLAYGROUP: Staging = Staging { kind: "split_playgroup", apply: |st, user, change, p| Box::pin(playgroups::apply(st, user, change.id, p)) };
     pub const CREATE_CONTAINER: Staging = Staging { kind: "create_container", apply: |st, user, _, p| Box::pin(apply_create_container(st, user, p)) };
     pub const UPDATE_CONTAINER: Staging = Staging { kind: "update_container", apply: |st, user, _, p| Box::pin(apply_update_container(st, user, p)) };
     pub const DELETE_CONTAINER: Staging = Staging { kind: "delete_container", apply: |st, user, _, p| Box::pin(apply_delete_container(st, user, p)) };

@@ -632,6 +632,7 @@ async fn staged_single_game_import_is_private_stale_checked_and_retry_safe() {
     stale["snapshot"]["me"] = json!("different");
     assert!(staged::apply(&st, &caller, &stale).await.is_err());
     let result = staged::apply(&st, &caller, &payload).await.unwrap();
+    assert_eq!(result["link"], format!("/table/games/{}", derived_id(&id, "9001")));
     while st.limits.mythic_bridge.check_user(&caller).is_ok() {}
     assert_eq!(staged::apply(&st, &caller, &payload).await.unwrap(), result);
     assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM games").fetch_one(&st.pool).await.unwrap(), 1);

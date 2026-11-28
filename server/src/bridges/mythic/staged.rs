@@ -165,7 +165,7 @@ pub(crate) async fn apply(st: &AppState, user: &User, payload: &Value) -> AppRes
         }
     }
     tx.commit().await?;
-    Ok(json!({"label":"Imported Mythic Tools game","href":format!("/table/games/{id}")}))
+    Ok(json!({"label":"Imported Mythic Tools game","link":format!("/table/games/{id}")}))
 }
 
 async fn member_snapshot(

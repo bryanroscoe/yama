@@ -740,6 +740,27 @@ pub(super) const TOOLS: &[Tool] = &[
         needs: Needs::Nothing,
     },
     Tool {
+        name: "split_playgroup",
+        aliases: &[],
+        title: "Make a playgroup from selected members and games",
+        description: staged!("Create a new playgroup with a subset of account members from a group they own, and move explicitly selected finished in-person games they recorded. Each game must have exactly those members, and belong to the source group or no group. Results stay; old offline writes and app history editing are fenced. Use exact member display names from list_playgroups. Never adds arbitrary accounts."),
+        schema: || json!({"type":"object","properties":{
+            "source_playgroup":{"type":"string","description":"ID of a playgroup they own."},
+            "name":{"type":"string","maxLength":60},
+            "members":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"},"description":"Exact, unambiguous account member display names, including yourself."},
+            "games":{"type":"array","minItems":1,"maxItems":200,"items":{"type":"string"},"description":"Explicit game IDs, each with exactly these players."}
+        },"required":["source_playgroup","name","members","games"],"additionalProperties":false}),
+        kind: Kind::Stage,
+        offer: Offer::Everyone,
+        search: false,
+        handler: stage!(changes::split_playgroup),
+        stages: Some(changes::staging::SPLIT_PLAYGROUP),
+        output: None,
+        untrusted: Some("other players as well as the account owner (names)"),
+        renamed: &[],
+        needs: Needs::Nothing,
+    },
+    Tool {
         name: "list_playgroups",
         aliases: &["playgroups"],
         title: "Your playgroups and their stats",

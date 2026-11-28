@@ -1031,7 +1031,7 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     // and none for stores.
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let with_lab = [
-        "import_mythic_game", "add_wish", "edit_deck", "delete_deck", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
+        "import_mythic_game", "add_wish", "split_playgroup", "edit_deck", "delete_deck", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
         "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
         "update_deck", "remove_wish", "create_container", "update_container", "delete_container", "remove_from_collection", "edit_copies", "save_deck",
     ];

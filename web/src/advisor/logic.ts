@@ -309,6 +309,7 @@ export function toolActivity(name: string): string {
     case "add_wish":
     case "update_deck":
     case "remove_wish":
+    case "split_playgroup":
     case "create_container":
     case "remove_from_collection":
     case "edit_copies":

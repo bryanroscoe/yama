@@ -1,4 +1,4 @@
-## script key, power user: 80 tools
+## script key, power user: 81 tools
 import_mythic_game	write
 list_datasets	read
 get_dataset	read
@@ -28,6 +28,7 @@ check_deck_list	read
 list_games	read
 get_game	read
 get_collection_summary	read
+split_playgroup	write
 list_playgroups	read
 list_devices	read
 list_lab_runs	read
@@ -80,7 +81,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in, power user: 80 tools
+## OAuth sign-in, power user: 81 tools
 import_mythic_game	write
 list_datasets	read
 get_dataset	read
@@ -110,6 +111,7 @@ check_deck_list	read
 list_games	read
 get_game	read
 get_collection_summary	read
+split_playgroup	write
 list_playgroups	read
 list_devices	read
 list_lab_runs	read
@@ -162,7 +164,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## script key: 80 tools
+## script key: 81 tools
 import_mythic_game	write
 list_datasets	read
 get_dataset	read
@@ -192,6 +194,7 @@ check_deck_list	read
 list_games	read
 get_game	read
 get_collection_summary	read
+split_playgroup	write
 list_playgroups	read
 list_devices	read
 list_lab_runs	read
@@ -244,7 +247,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in: 80 tools
+## OAuth sign-in: 81 tools
 import_mythic_game	write
 list_datasets	read
 get_dataset	read
@@ -274,6 +277,7 @@ check_deck_list	read
 list_games	read
 get_game	read
 get_collection_summary	read
+split_playgroup	write
 list_playgroups	read
 list_devices	read
 list_lab_runs	read
@@ -326,7 +330,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## Ask Claude, power user: 78 tools
+## Ask Claude, power user: 79 tools
 import_mythic_game	write
 list_datasets	read
 get_dataset	read
@@ -356,6 +360,7 @@ check_deck_list	read
 list_games	read
 get_game	read
 get_collection_summary	read
+split_playgroup	write
 list_playgroups	read
 list_devices	read
 list_lab_runs	read
@@ -406,7 +411,7 @@ list_collection_cards	read
 save_deck	write
 get_research_sources	read
 
-## OAuth sign-in limited to reading and staging, power user: 78 tools
+## OAuth sign-in limited to reading and staging, power user: 79 tools
 import_mythic_game	write
 list_datasets	read
 get_dataset	read
@@ -436,6 +441,7 @@ check_deck_list	read
 list_games	read
 get_game	read
 get_collection_summary	read
+split_playgroup	write
 list_playgroups	read
 list_devices	read
 list_lab_runs	read
@@ -535,7 +541,7 @@ list_deck_versions	read
 list_collection_cards	read
 get_research_sources	read
 
-## script key, an account with no stores, datasets or lab runs: 65 tools
+## script key, an account with no stores, datasets or lab runs: 66 tools
 import_mythic_game
 get_research
 save_research
@@ -557,6 +563,7 @@ check_deck_list
 list_games
 get_game
 get_collection_summary
+split_playgroup
 list_playgroups
 list_devices
 get_precon
