@@ -35,6 +35,8 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 mod preview;
+mod playgroups;
+pub(super) use playgroups::split as split_playgroup;
 use preview::ChangePreview;
 
 /// Changes one account may have waiting at once.
@@ -3282,6 +3284,7 @@ pub(super) mod staging {
     pub const ADD_WISH: Staging = Staging { kind: "add_wish", apply: |st, user, change, p| Box::pin(apply_add_wish(st, user, change.id, p)) };
     pub const UPDATE_DECK: Staging = Staging { kind: "update_deck", apply: |st, user, _, p| Box::pin(apply_update_deck(st, user, p)) };
     pub const REMOVE_WISH: Staging = Staging { kind: "remove_wish", apply: |st, user, _, p| Box::pin(apply_remove_wish(st, user, p)) };
+    pub const SPLIT_PLAYGROUP: Staging = Staging { kind: "split_playgroup", apply: |st, user, change, p| Box::pin(playgroups::apply(st, user, change.id, p)) };
     pub const CREATE_CONTAINER: Staging = Staging { kind: "create_container", apply: |st, user, _, p| Box::pin(apply_create_container(st, user, p)) };
     pub const UPDATE_CONTAINER: Staging = Staging { kind: "update_container", apply: |st, user, _, p| Box::pin(apply_update_container(st, user, p)) };
     pub const DELETE_CONTAINER: Staging = Staging { kind: "delete_container", apply: |st, user, _, p| Box::pin(apply_delete_container(st, user, p)) };

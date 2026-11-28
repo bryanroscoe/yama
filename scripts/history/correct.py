@@ -181,6 +181,8 @@ def apply(conn, owner, request, dry_run=False):
             if conn.execute('SELECT 1 FROM history_corrections WHERE reverts=?', (reverts,)).fetchone():
                 raise Conflict('batch has already been undone')
             original_changes = json.loads(original['changes'])
+            if any(c['kind'] not in ('player', 'win_condition') for c in original_changes):
+                raise ValueError('this correction type cannot be undone with the player correction command')
             proposed = {(c['game_id'], c['seat']): c['before'] for c in original_changes if c['kind'] == 'player'}
             for old in reversed(original_changes):
                 g = game(conn, old['game_id'], owner)

@@ -1304,6 +1304,65 @@
     },
     {
       "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Create a new playgroup with a subset of account members from a group they own, and move explicitly selected finished in-person games they recorded. Each game must have exactly those members, and belong to the source group or no group. Results stay; old offline writes and app history editing are fenced. Use exact member display names from list_playgroups. Never adds arbitrary accounts. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "games": {
+            "description": "Explicit game IDs, each with exactly these players.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "type": "array"
+          },
+          "members": {
+            "description": "Exact, unambiguous account member display names, including yourself.",
+            "items": {
+              "maxLength": 300,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 60,
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "source_playgroup": {
+            "description": "ID of a playgroup they own.",
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_playgroup",
+          "name",
+          "members",
+          "games"
+        ],
+        "type": "object"
+      },
+      "name": "split_playgroup",
+      "title": "Make a playgroup from selected members and games"
+    },
+    {
+      "annotations": {
         "openWorldHint": false,
         "readOnlyHint": true
       },
