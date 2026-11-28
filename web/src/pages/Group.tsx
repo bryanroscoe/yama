@@ -182,7 +182,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
           <section className="grp-section" aria-labelledby="grp-players">
             <div className="grp-section-head">
               <h2 id="grp-players">Players</h2>
-              <span className="grp-wide grp-hint">The line marks an even share: 25% at a 4-player table. Fewer than {under} games is too few to say. The computer isn't listed, and a game it wins is a loss for everyone.</span>
+              <span className="grp-wide grp-hint">The line marks an even share for the tables each player played. Fewer than {under} games is too few to say. The computer isn't listed, and a game it wins is a loss for everyone.</span>
             </div>
             <ul className="grp-players">
               {s.players.map((p) => {
