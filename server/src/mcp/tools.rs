@@ -898,7 +898,7 @@ pub(super) const TOOLS: &[Tool] = &[
         handler: run!(run_changes),
         stages: None,
         output: None,
-        untrusted: None,
+        untrusted: Some("saved changes, including other players' names"),
         renamed: &[],
         needs: Needs::Nothing,
     },

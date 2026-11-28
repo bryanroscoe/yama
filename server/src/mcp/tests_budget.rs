@@ -372,7 +372,7 @@ async fn the_review_queue_and_changes_page_with_a_cursor() {
     assert!(err && text == "plan deck not found", "{text}");
 
     let (err, first) = call(&app, &mcp, "changes", json!({})).await;
-    assert!(!err && first.starts_with("50 changes are waiting"), "{first}");
+    assert!(!err && first.lines().nth(1).is_some_and(|line| line.starts_with("50 changes are waiting")), "{first}");
     assert_eq!(first.lines().filter(|l| l.starts_with("- ")).count(), 25, "{first}");
     assert!(first.lines().all(|l| l.chars().count() < 600), "a long summary is cut: {first}");
     assert!(first.contains("`list_changes` with this id shows it whole"), "{first}");
@@ -389,7 +389,7 @@ async fn the_review_queue_and_changes_page_with_a_cursor() {
     assert_eq!(all.len(), 50, "the second page repeats none of the first");
     // One change whole, for checking exactly what applying it would do; only the owner's.
     let (err, whole) = call(&app, &mcp, "changes", json!({"id": "change-007"})).await;
-    assert!(!err && whole.starts_with("Change change-007 (pending") && whole.chars().count() > 1000, "{whole}");
+    assert!(!err && whole.lines().nth(1).is_some_and(|line| line.starts_with("Change change-007 (pending")) && whole.chars().count() > 1000, "{whole}");
     let (_, other) = power_user(&pool, "other@example.com").await;
     let other = key(&app, &other, Some("mcp")).await;
     let (err, text) = call(&app, &other, "changes", json!({"id": "change-007"})).await;

@@ -451,7 +451,7 @@ async fn a_deck_edit_waits_for_review_then_applies_once() {
     let (err, text) = call(&app, &mcp, "discard_change", json!({"id": stale})).await;
     assert!(!err, "{text}");
     let (_, waiting) = call(&app, &mcp, "changes", json!({})).await;
-    assert_eq!(waiting, "No changes are waiting for their review.");
+    assert_eq!(waiting.split_once('\n').map(|(_, body)| body), Some("No changes are waiting for their review."));
     let (status, all) = send(&app, Method::GET, "/api/assistant/changes?status=all", Some(&a_session), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(all.as_array().unwrap().len(), 2);
