@@ -76,6 +76,12 @@ async fn snapshot(conn: &mut SqliteConnection, owner: &str, args: &Value) -> App
         .map_err(anyhow::Error::from)?;
         let seats: Vec<(i64, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as("SELECT s.seat,s.member_id,s.user_id,COALESCE(s.user_id,m.user_id),s.ai_kind FROM game_seats s LEFT JOIN playgroup_members m ON m.id=s.member_id WHERE s.game_id=? ORDER BY s.seat")
             .bind(&id).fetch_all(&mut *conn).await?;
+        let revision: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(revision),0) FROM history_correction_targets WHERE game_id=?",
+        )
+        .bind(&id)
+        .fetch_one(&mut *conn)
+        .await?;
         let mut saved = Vec::new();
         let mut users = BTreeSet::new();
         for (seat, member, stored_user, user, ai) in seats {
@@ -98,12 +104,6 @@ async fn snapshot(conn: &mut SqliteConnection, owner: &str, args: &Value) -> App
                     "A selected game's seats do not match the source members",
                 ));
             }
-            let revision: i64 = sqlx::query_scalar(
-                "SELECT COALESCE(SUM(revision),0) FROM history_correction_targets WHERE game_id=?",
-            )
-            .bind(&id)
-            .fetch_one(&mut *conn)
-            .await?;
             saved.push(json!({"seat":seat,"member_id":member,"user_id":u,"stored_user_id":stored_user,"revision":revision}));
         }
         if users.len() != members.len() {
