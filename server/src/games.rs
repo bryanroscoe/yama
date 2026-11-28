@@ -389,7 +389,7 @@ pub(crate) async fn create_game(pool: &SqlitePool, user: &str, g: NewGame) -> Ap
 }
 
 /// What `create_game` checks before writing anything: ids, seats, times, and the playgroup.
-pub(crate) async fn check_game(pool: &SqlitePool, user: &str, g: &NewGame) -> AppResult<()> {
+pub(crate) async fn check_game<'c, E: sqlx::SqliteExecutor<'c>>(pool: E, user: &str, g: &NewGame) -> AppResult<()> {
     if uuid::Uuid::parse_str(&g.id).is_err() {
         return Err(AppError::bad("game id must be a UUID"));
     }

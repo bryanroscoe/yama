@@ -1031,7 +1031,7 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     // and none for stores.
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let with_lab = [
-        "add_wish", "edit_deck", "delete_deck", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
+        "import_mythic_game", "add_wish", "edit_deck", "delete_deck", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
         "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
         "update_deck", "remove_wish", "create_container", "update_container", "delete_container", "remove_from_collection", "edit_copies", "save_deck",
     ];
@@ -1966,4 +1966,29 @@ async fn scan_speed_tests_are_read_by_their_owner_only() {
     let s: Value = serde_json::from_str(&text).unwrap();
     assert_eq!(s["count"], 0);
     assert_eq!(s["items"], json!([]));
+}
+
+#[tokio::test]
+async fn mythic_import_stages_only_then_applies_with_owner_isolation() {
+    let (app, pool) = app().await;
+    let (owner, session) = user(&pool, "importer@example.com").await;
+    let token = key(&app, &session, Some("mcp")).await;
+    let request = json!({"export":{"me":{"id":1},"games":[{
+        "id":123,"formatid":6,"started_at":"2026-10-01T12:00:00Z","ended_at":"2026-10-01T13:00:00Z",
+        "winner":1,"players":[{"id":1,"firstname":"Importer","lifetotal":40}]
+    }]}});
+    let (err, preview) = call(&app, &token, "import_mythic_game", json!({"request":request,"preview_only":true})).await;
+    assert!(!err && preview.contains("new"), "{preview}");
+    let (err, answer) = call(&app, &token, "import_mythic_game", json!({"request":request,"op_id":"import-game-123"})).await;
+    assert!(!err, "{answer}");
+    let (err, again) = call(&app, &token, "import_mythic_game", json!({"request":request,"op_id":"import-game-123"})).await;
+    assert!(!err && again.contains("Already staged"), "{again}");
+    let change: String = sqlx::query_scalar("SELECT id FROM assistant_changes WHERE owner_id=?").bind(&owner).fetch_one(&pool).await.unwrap();
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM games").fetch_one(&pool).await.unwrap(), 0);
+    let (_, other_session) = user(&pool, "other@example.com").await;
+    let other = key(&app, &other_session, Some("mcp")).await;
+    assert!(call(&app, &other, "apply_change", json!({"id":change})).await.0);
+    let (err, result) = call(&app, &token, "apply_change", json!({"id":change})).await;
+    assert!(!err, "{result}");
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM games WHERE created_by=?").bind(&owner).fetch_one(&pool).await.unwrap(), 1);
 }

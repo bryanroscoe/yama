@@ -388,6 +388,13 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
     let mut r = DeleteReport::default();
     let email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = ?").bind(id).fetch_one(&mut **tx).await?;
 
+    // Import approvals retain exported names, member mappings and candidate names. Purge every
+    // status before membership anonymization, including older payloads with only member ids.
+    sqlx::query("DELETE FROM assistant_changes WHERE kind = 'import_mythic_game' AND EXISTS (
+        SELECT 1 FROM json_tree(assistant_changes.payload) j WHERE j.atom = ?1
+        OR j.atom IN (SELECT id FROM playgroup_members WHERE user_id = ?1))")
+        .bind(id).execute(&mut **tx).await?;
+
     // ── playgroups ─────────────────────────────────────────────────────────
     // Its own: pass each to the longest-standing other account member, or delete it.
     let owned: Vec<String> = sqlx::query_scalar("SELECT id FROM playgroups WHERE owner_id = ?").bind(id).fetch_all(&mut **tx).await?;

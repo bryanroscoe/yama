@@ -19,6 +19,16 @@ game of the match, from 1) and `match_best_of`, and `match_wins` and `match_draw
 before that game, by that game's seat numbers. Each game is still its own game, counted on its
 own. `get_game` lists the match's games you can see (`match_games`, each with its winner's name).
 
+## Importing a missing Mythic Tools game (`import_mythic_game`)
+
+Use an already exported bridge payload for exactly one game the person requested. Credentials
+never belong in the request. First call with `preview_only=true` to inspect identities and
+possible duplicates. To stage a confirmed separate game despite a collision, set
+`request.choices[mythic_game_id]` to `import`; never guess that choice. Applying rechecks the
+preview and playgroup identities. A stale change must be discarded and staged again. This tool
+cannot update an existing game, link games or link people to accounts; the bridge page handles
+game updates and existing member mappings are reused.
+
 ## Precons (`get_precon`)
 
 - Real results are playgroup.gg's, with dated history: the all-time rate, an approximate recent

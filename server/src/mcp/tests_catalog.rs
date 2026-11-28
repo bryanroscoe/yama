@@ -727,8 +727,8 @@ fn descriptions_are_short_and_written_for_anyone() {
     // get_scan_timings (20 Nov 2026) to about 27,200; get_scan_speed_tests (21 Nov 2026) to
     // about 27,550; a plan's history (get_plan_history and record_plan_history, 21 Nov 2026) and
     // get_scan_timings' look times (21 Nov 2026) to about 27,810; get_scan_photos (22 Nov 2026)
-    // to about 28,150.
-    assert!(total <= 28_200, "the descriptions are {total} characters in all");
+    // to about 28,150; single-game Mythic import (27 Nov 2026) to about 28,650.
+    assert!(total <= 28_800, "the descriptions are {total} characters in all");
     let instructions = super::SERVER_INSTRUCTIONS;
     assert!(instructions.chars().count() <= 2_600, "the instructions are {} characters", instructions.chars().count());
     for word in his {

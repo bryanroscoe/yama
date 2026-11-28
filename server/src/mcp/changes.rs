@@ -51,6 +51,20 @@ pub fn router() -> Router<AppState> {
         .route("/api/assistant/changes/{id}/discard", post(discard_route))
 }
 
+/// Preview or stage one explicit exported game. The bridge retains validation and identities.
+pub(super) async fn import_mythic_game(st: &AppState, user: &User, via: &Via, args: &Value) -> AppResult<String> {
+    let (payload, detail) = crate::bridges::mythic::staged::prepare(st, user, &args["request"]).await?;
+    if arg::flag(args, "preview_only", false)? {
+        return Ok(detail);
+    }
+    if payload["snapshot"]["games"][0]["action"] != "create" {
+        return Err(AppError::bad(format!("Nothing staged. Only a missing game can be imported. Resolve duplicate candidates with an explicit choices entry (import), or use the bridge page for updates and links. Preview:\n{detail}")));
+    }
+    stage_once(st, user, via, args, Staged {
+        kind: "import_mythic_game", summary: "Import one Mythic Tools game".into(), detail, payload,
+    }).await
+}
+
 // ── the stored change ───────────────────────────────────────────────────────
 
 #[derive(sqlx::FromRow)]
@@ -3254,6 +3268,7 @@ pub(super) mod staging {
     use super::*;
 
     /// `edit_deck` and `save_deck` both store an `edit_deck` change; a complete list says so.
+    pub const IMPORT_MYTHIC_GAME: Staging = Staging { kind: "import_mythic_game", apply: |st, user, _, p| Box::pin(crate::bridges::mythic::staged::apply(st, user, p)) };
     pub const EDIT_DECK: Staging = Staging {
         kind: "edit_deck",
         apply: |st, user, change, p| {

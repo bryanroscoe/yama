@@ -274,6 +274,8 @@ export function toolActivity(name: string): string {
     case "game":
     case "get_game":
       return "Reading your game history…";
+    case "import_mythic_game":
+      return "Preparing a Mythic Tools game import…";
     case "playgroups":
     case "list_playgroups":
       return "Reading your playgroups…";

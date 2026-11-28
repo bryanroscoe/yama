@@ -38,6 +38,17 @@ macro_rules! staged {
 
 pub(super) const TOOLS: &[Tool] = &[
     Tool {
+        name: "import_mythic_game", aliases: &[], title: "Import one exported Mythic Tools game",
+        description: staged!("Preview or stage one missing game from an explicit Mythic Tools export. Never send credentials. Use preview_only=true to inspect identities and duplicates, then confirm any collision with request.choices[id]=import. Apply requires a current preview. Updates and links use the bridge page."),
+        schema: || json!({"type":"object","properties":{
+            "request":{"type":"object","description":"One exported bridge game request. No credentials."},
+            "preview_only":{"type":"boolean"},"op_id":{"type":"string"}
+        },"required":["request"],"additionalProperties":false}),
+        kind: Kind::Stage, offer: Offer::Everyone, search: false,
+        handler: stage!(changes::import_mythic_game), stages: Some(changes::staging::IMPORT_MYTHIC_GAME),
+        output: None, untrusted: Some("Exported Mythic Tools game text and player names"), renamed: &[], needs: Needs::Nothing,
+    },
+    Tool {
         name: "list_datasets",
         aliases: &["datasets"],
         title: "Your evidence datasets",
