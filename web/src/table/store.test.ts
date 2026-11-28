@@ -1253,4 +1253,14 @@ describe("handing a game to another device", () => {
     expect(await store.sealForHandOver("another game")).toBeNull();
     store.discardGame();
   });
+
+  it("remembers that this account isn't in the playgroup of a game handed to it", async () => {
+    store.resumeGame({ ...setup("g-outsider"), playgroupId: "theirs" }, []);
+    store.markOutsider("other game");
+    expect(store.getGame()?.outsider).toBeUndefined();
+    store.markOutsider("g-outsider");
+    expect(store.getGame()?.outsider).toBe(true);
+    expect(JSON.parse(items.get("yama.table.current.me") ?? items.get("yama.table.current") ?? "null")?.outsider).toBe(true);
+    store.discardGame();
+  });
 });

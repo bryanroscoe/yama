@@ -14,7 +14,7 @@ vi.mock("../auth", () => ({ useMe: () => ({ data: fixtures.user ? { id: fixtures
 vi.mock("../api", () => ({ api: vi.fn(async () => ({ code: "c".repeat(32) })) }));
 vi.mock("../viewingFlag", () => ({ isViewing: () => false }));
 vi.mock("./wakeLock", () => ({ useScreenAwake: () => {} }));
-vi.mock("./store", () => ({ resumeGame: vi.fn(), getGame: () => fixtures.localGame, useTable: () => ({ game: fixtures.localGame, state: null }) }));
+vi.mock("./store", () => ({ resumeGame: vi.fn(), markOutsider: vi.fn(), getGame: () => fixtures.localGame, useTable: () => ({ game: fixtures.localGame, state: null }) }));
 vi.mock("./share", () => ({
   guestWsUrl: (id: string, key: string) => `wss://relay/table/${id}/ws?role=guest&key=${key}`,
   joinFragment: (key: string, relay: string) => `#k=${key}${relay === "edge" ? "&r=cf" : ""}`,

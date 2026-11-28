@@ -269,4 +269,29 @@ describe("shared table lifecycle", () => {
     expect(store.sealForHandOver).not.toHaveBeenCalled();
     expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/hand-over"))).toBe(false);
   });
+  it("tells the room where the game went once its connection is back, if it dropped as Yama said yes", async () => {
+    const { api } = await import("../api");
+    const store = await import("./store");
+    share.startHosting("current");
+    const ws = Socket.sockets[0]!;
+    ws.onopen?.();
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path.endsWith("/hand-over")) ws.close(); // The relay connection drops meanwhile.
+      return path.includes("/claim/") ? { name: "Sam" } : {};
+    });
+    askFrom(ws, { type: "hand_over", code, key: newKey, relay: "cf" });
+    await vi.waitFor(() => expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/hand-over"))).toBe(true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.letGo).not.toHaveBeenCalled();
+    expect(store.releaseHandOver).not.toHaveBeenCalled();
+    // It keeps connecting, and its first word on the new connection is where the game went.
+    await vi.advanceTimersByTimeAsync(20_000);
+    const again = Socket.sockets.at(-1)!;
+    expect(again).not.toBe(ws);
+    again.onopen?.();
+    expect(again.messages).toHaveLength(1);
+    expect(JSON.parse(again.messages[0]!)).toMatchObject({ moved: true, next: { gameId: "current", key: newKey } });
+    expect(store.letGo).toHaveBeenCalledWith("current");
+    expect(vi.mocked(api).mock.calls.find(([path]) => path.endsWith("/hand-over"))?.[1]).toMatchObject({ json: { code, through: 0 } });
+  });
 });

@@ -55,6 +55,12 @@ export interface LocalGame {
    * uploaded while that account is signed in here. Missing on games from before this was kept.
    */
   owner?: string;
+  /**
+   * Handed to this device at the table, and its account isn't in the game's playgroup: a game
+   * started from this one (Play again) is played without the group, since this account can't
+   * record a game in it.
+   */
+  outsider?: true;
 }
 
 /**
@@ -970,6 +976,13 @@ export async function sealForHandOver(gameId: string): Promise<LocalGame | null>
   if (current?.setup.id === gameId && current.syncedThrough >= last && isPosted(gameId)) return current;
   releaseHandOver(gameId);
   return null;
+}
+
+/** This device's account isn't in `gameId`'s playgroup (it was handed the game at the table). */
+export function markOutsider(gameId: string) {
+  if (current?.setup.id !== gameId || current.outsider || !canWriteShared()) return;
+  current = { ...current, outsider: true };
+  emit();
 }
 
 /** The hand-over didn't happen: this device records again. */

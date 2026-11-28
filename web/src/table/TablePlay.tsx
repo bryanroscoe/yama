@@ -333,6 +333,9 @@ export function TableScreen({ game, state, following, onSaved }: {
               if (again && sharing) announceNext(id);
               // The setup page says it saved, and who won (TableHome's savedFromState reads this shape).
               const saved: SavedGame = { gameId: setup.id, winner: state.players.find((p) => p.seat === finishing.winner)?.name ?? null };
+              // Handed to this device by someone in a playgroup this account isn't in: the next
+              // game is played without the group (and its member links), by the same names.
+              const outsider = !!getGame()?.outsider;
               finishGame(finishing.winner, details, first);
               if (!again) {
                 // Only if it did end here: another window running the table keeps the game going.
@@ -344,13 +347,15 @@ export function TableScreen({ game, state, following, onSaved }: {
               // and so do places swapped: seats are numbered again in the order people now sit.
               // In a match the next game carries the score; once the match is decided, "again" starts a new one.
               const match = setup.match ? (nextMatchGame(state, finishing.winner) ?? newMatch(crypto.randomUUID(), setup.match.bestOf)) : undefined;
+              const { playgroupId, ...rest } = setup;
               startGame({
-                ...setup,
+                ...rest,
+                ...(playgroupId && !outsider ? { playgroupId } : {}),
                 id,
                 startedAt: new Date().toISOString(),
                 ...(match ? { match } : {}),
                 players: seatOrder(state).flatMap((s, i) => state.players.filter((p) => p.seat === s).map((p) => ({ ...p, seat: i }))).map(({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist }) =>
-                  ({ seat, name, memberId, userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist })),
+                  ({ seat, name, ...(outsider ? {} : { memberId }), userId, deckVersionId, deckLabel, commanderName, partnerName, colorIdentity, art, artist, partnerArt, partnerArtist })),
               });
               // This device's seat follows its player into the renumbered seats.
               if (ownSeat !== null) {

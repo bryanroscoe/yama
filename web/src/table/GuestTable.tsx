@@ -9,7 +9,7 @@ import { Button, ButtonLink, ErrorText, Pips } from "../components/ui";
 import { clearMovedTo, guestWsUrl, joinFragment, joinLink, roomToKeep, startHosting, type HandOverAsk } from "./share";
 import { api } from "../api";
 import { isViewing } from "../viewingFlag";
-import { getGame, resumeGame, useTable } from "./store";
+import { getGame, markOutsider, resumeGame, useTable } from "./store";
 import type { LayoutKey } from "./layouts";
 import { useMe } from "../auth";
 import { forgetTable, rememberTable } from "./following";
@@ -115,6 +115,10 @@ function GuestGame({ gameId }: { gameId: string }) {
             forgetTable(user, gameId);
             resumeGame(msg.setup, msg.log);
             startHosting(gameId);
+            // This game is recorded as its creator's; a game this account starts from it can't be
+            // in a playgroup it isn't in.
+            const group = (msg.setup as TableSetup).playgroupId;
+            if (group) void api<{ id: string }[]>("/api/playgroups").then((mine) => mine.some((g) => g.id === group) || markOutsider(gameId), () => undefined);
             navigate("/table/play", { replace: true });
             return;
           }

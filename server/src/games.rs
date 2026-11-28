@@ -246,7 +246,17 @@ async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json
             user.id.clone()
         }
     };
-    Ok(Json(create_game(&st.pool, &acting, g).await?))
+    // The writer is read again under the write lock: a take-back or hand-over between the two
+    // reads refuses this save rather than letting it land for whoever no longer keeps the game.
+    let expected = held.as_ref().map(|(creator, keeper)| keeper.clone().unwrap_or_else(|| creator.clone()));
+    check_game(&st.pool, &acting, &g).await?;
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if writer_in(&mut tx, &g.id).await? != expected {
+        return Err(AppError::Conflict("This game changed hands at the table just now. Try again.".into()));
+    }
+    let saved = create_game_in(&mut tx, &acting, g).await?;
+    tx.commit().await?;
+    Ok(Json(saved))
 }
 
 /// A seat as it's stored, after the checks in `resolve_seat`.
@@ -707,9 +717,16 @@ pub(crate) async fn can_write(pool: &SqlitePool, game: &str, user: &str) -> AppR
 /// table (`kept_by`, table_rooms.rs), else the one that started it. None for an online game or
 /// no such game.
 pub(crate) async fn writer(pool: &SqlitePool, game: &str) -> AppResult<Option<String>> {
+    let mut conn = pool.acquire().await?;
+    writer_in(&mut conn, game).await
+}
+
+/// `writer`, read inside a write transaction, so a hand-over or take-back can't land between the
+/// check and the write.
+pub(crate) async fn writer_in(conn: &mut sqlx::SqliteConnection, game: &str) -> AppResult<Option<String>> {
     Ok(sqlx::query_scalar("SELECT COALESCE(kept_by, created_by) FROM games WHERE id = ? AND mode = 'in_person'")
         .bind(game)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await?)
 }
 
@@ -719,10 +736,10 @@ async fn append_events(
     Path(id): Path<String>,
     Json(events): Json<Vec<Event>>,
 ) -> AppResult<Json<serde_json::Value>> {
-    if !can_write(&st.pool, &id, &user.id).await? {
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    if writer_in(&mut tx, &id).await?.as_deref() != Some(user.id.as_str()) {
         return Err(AppError::NotFound("game"));
     }
-    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
     let added = insert_events(&mut tx, &id, &events).await?;
     tx.commit().await?;
     Ok(Json(serde_json::json!({ "added": added })))
@@ -744,6 +761,10 @@ async fn finish_as(pool: &SqlitePool, id: &str, user: &str, f: Finish) -> AppRes
     let seats: Vec<i64> = sqlx::query_scalar("SELECT seat FROM game_seats WHERE game_id = ?").bind(id).fetch_all(pool).await?;
     check_finish(&f, &seats)?;
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    // Again under the write lock: the game may have changed hands since.
+    if writer_in(&mut tx, id).await?.as_deref() != Some(user) {
+        return Err(AppError::NotFound("game"));
+    }
     finish_in(&mut tx, id, f, false).await?;
     tx.commit().await?;
     Ok(())

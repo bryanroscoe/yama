@@ -157,6 +157,9 @@ const EDGE_TTL: Duration = Duration::from_secs(3 * 60);
 struct Room {
     /// Set by the host; guests must match it.
     key: Option<String>,
+    /// Keys of earlier hosts of this game (it was handed to another phone, which hosts it here
+    /// with its own key): a phone that scanned an earlier code still gets in, newest last.
+    old_keys: Vec<String>,
     /// The account hosting it.
     host_user: Option<String>,
     snapshot: Option<String>,
@@ -173,8 +176,21 @@ impl Room {
         (self.guests.receiver_count() < MAX_GUESTS).then(|| self.guests.subscribe())
     }
 
+    /// A host connected with `key`. A different key is another phone hosting the game now
+    /// (handed over): the earlier ones still let in the phones that scanned them.
+    fn set_key(&mut self, key: String) {
+        if let Some(old) = self.key.take().filter(|old| *old != key) {
+            self.old_keys.retain(|k| *k != old && *k != key);
+            self.old_keys.push(old);
+            if self.old_keys.len() > MAX_OLD_KEYS {
+                self.old_keys.remove(0);
+            }
+        }
+        self.key = Some(key);
+    }
+
     fn new() -> Self {
-        Self { key: None, host_user: None, snapshot: None, host: None, guests: broadcast::channel(BACKLOG).0, next_conn: 0 }
+        Self { key: None, old_keys: Vec::new(), host_user: None, snapshot: None, host: None, guests: broadcast::channel(BACKLOG).0, next_conn: 0 }
     }
 }
 
@@ -356,6 +372,23 @@ async fn claimant(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
 #[derive(Deserialize)]
 struct HandOver {
     code: String,
+    /// The newest event the host phone has, all of it on Yama: the other phone carries on from
+    /// exactly that log, so Yama must have nothing newer.
+    through: i64,
+}
+
+/// An account whose device kept `game` and no longer does may not save the game on its own
+/// later: remembered as deleted for it (`games::create_game_in` refuses it), so a phone still
+/// holding a copy can't make the game again as its own once the creator deletes it. Its saves as
+/// keeper, if the game comes back to it, are made as the creator and aren't affected.
+async fn no_longer_keeps(tx: &mut sqlx::SqliteConnection, game: &str, user: &str) -> AppResult<()> {
+    sqlx::query("INSERT OR IGNORE INTO deleted_games (id, deleted_by, deleted_at) VALUES (?, ?, ?)")
+        .bind(game)
+        .bind(user)
+        .bind(crate::util::now())
+        .execute(&mut *tx)
+        .await?;
+    Ok(())
 }
 
 /// The host phone hands its game to the phone that asked: that account keeps the record from now on.
@@ -363,9 +396,17 @@ async fn hand_over(State(st): State<AppState>, CurrentUser(user): CurrentUser, P
     if going_writer(&st, &game_id).await?.as_deref() != Some(user.id.as_str()) {
         return Err(AppError::NotFound("game"));
     }
-    let Some(asker) = st.rooms.take_claim(&game_id, &body.code, Instant::now()) else {
-        return Err(AppError::Conflict("That ask has expired. Ask again from the other device.".into()));
+    let expired = || AppError::Conflict("That ask has expired. Ask again from the other device.".into());
+    let Some(asker) = st.rooms.claimant(&game_id, &body.code, Instant::now()) else {
+        return Err(expired());
     };
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    // Another device on this account may have saved newer taps than this phone has: then the
+    // other phone would carry on from a log that's behind Yama's.
+    let newest: Option<i64> = sqlx::query_scalar("SELECT MAX(seq) FROM game_events WHERE game_id = ?").bind(&game_id).fetch_one(&mut *tx).await?;
+    if newest.unwrap_or(0) > body.through {
+        return Err(AppError::Conflict("Yama has newer changes to this game than this device. Let it catch up, then hand it over again.".into()));
+    }
     // Back to the creator is no keeper at all. Only while this account still writes it, so two
     // hand-overs at once can't both land.
     let moved = sqlx::query(
@@ -376,12 +417,23 @@ async fn hand_over(State(st): State<AppState>, CurrentUser(user): CurrentUser, P
     .bind(&asker)
     .bind(&game_id)
     .bind(&user.id)
-    .execute(&st.pool)
+    .execute(&mut *tx)
     .await?
     .rows_affected();
     if moved == 0 {
         return Err(AppError::Conflict("This game can't be handed over now. Refresh to see where it is.".into()));
     }
+    // A keeper handing it on stops keeping it.
+    let creator: String = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?").bind(&game_id).fetch_one(&mut *tx).await?;
+    if creator != user.id {
+        no_longer_keeps(&mut tx, &game_id, &user.id).await?;
+    }
+    // The ask is used up only by a hand-over that happens (a refusal above leaves it waiting),
+    // and only once: a second hand-over racing this one rolls back here.
+    if st.rooms.take_claim(&game_id, &body.code, Instant::now()).as_deref() != Some(asker.as_str()) {
+        return Err(expired());
+    }
+    tx.commit().await?;
     // This account no longer offers the game on the Cloudflare relay; the new phone offers its own room.
     st.rooms.edge.lock().unwrap().remove(&game_id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -389,13 +441,19 @@ async fn hand_over(State(st): State<AppState>, CurrentUser(user): CurrentUser, P
 
 /// The game's creator takes back a game it handed to another phone (that phone died, or left).
 async fn take_back(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>) -> AppResult<Json<serde_json::Value>> {
-    let taken = sqlx::query("UPDATE games SET kept_by = NULL WHERE id = ? AND created_by = ? AND mode = 'in_person' AND status = 'in_progress' AND kept_by IS NOT NULL")
+    let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let keeper: Option<String> = sqlx::query_scalar("SELECT kept_by FROM games WHERE id = ? AND created_by = ? AND mode = 'in_person' AND status = 'in_progress'")
         .bind(&game_id)
         .bind(&user.id)
-        .execute(&st.pool)
+        .fetch_optional(&mut *tx)
         .await?
-        .rows_affected();
-    if taken == 0 {
+        .flatten();
+    if let Some(k) = &keeper {
+        sqlx::query("UPDATE games SET kept_by = NULL WHERE id = ?").bind(&game_id).execute(&mut *tx).await?;
+        no_longer_keeps(&mut tx, &game_id, k).await?;
+    }
+    tx.commit().await?;
+    if keeper.is_none() {
         let ours = going_writer(&st, &game_id).await?.as_deref() == Some(user.id.as_str());
         if !ours {
             return Err(AppError::NotFound("game"));
@@ -407,7 +465,7 @@ async fn take_back(State(st): State<AppState>, CurrentUser(user): CurrentUser, P
 /// A guest may join with the room's share key, or as the account hosting it.
 fn guest_may_join(room: Option<&Room>, user: &str, key: &str) -> bool {
     let Some(room) = room else { return false };
-    let by_key = key.len() >= 16 && room.key.as_deref() == Some(key);
+    let by_key = key.len() >= 16 && (room.key.as_deref() == Some(key) || room.old_keys.iter().any(|k| k == key));
     by_key || room.host_user.as_deref() == Some(user)
 }
 
@@ -459,6 +517,8 @@ fn guest_event(text: &str, from: &str, throttle: &mut Throttle, now: Instant) ->
 }
 /// Snapshots kept for a guest that falls behind (it skips to the newest, which carries everything).
 const BACKLOG: usize = 16;
+/// Earlier hosts' keys a room still takes.
+const MAX_OLD_KEYS: usize = 4;
 /// Tables one account (not an admin) may host at once.
 pub const MAX_HOSTED: usize = 4;
 
@@ -525,7 +585,7 @@ async fn run_host(rooms: Arc<Rooms>, game_id: String, user_id: String, key: Stri
         let room = map.entry(game_id.clone()).or_insert_with(Room::new);
         // Set here, on every host connection: the room may be new, or made again after the
         // last phone left it.
-        room.key = Some(key);
+        room.set_key(key);
         room.host_user = Some(user_id.clone());
         room.next_conn += 1;
         // A newer host connection (e.g. after a reconnect) replaces the old one.
@@ -786,6 +846,18 @@ mod tests {
     }
 
     #[test]
+    fn phones_that_scanned_an_earlier_hosts_code_still_get_in() {
+        let mut r = room(&"a".repeat(32), "bryan");
+        for k in ["b", "c", "c", "d", "e", "f"] {
+            r.set_key(k.repeat(32));
+        }
+        assert!(guest_may_join(Some(&r), "sam", &"f".repeat(32)));
+        assert!(guest_may_join(Some(&r), "sam", &"b".repeat(32)), "an earlier host's code");
+        assert!(!guest_may_join(Some(&r), "sam", &"a".repeat(32)), "only the last few");
+        assert!(!guest_may_join(Some(&r), "sam", &"z".repeat(32)));
+    }
+
+    #[test]
     fn deleting_an_account_closes_its_tables_and_ends_its_sockets() {
         let rooms = Rooms::default();
         rooms.rooms.lock().unwrap().insert("ann-game".into(), room("0123456789abcdef0123", "ann"));
@@ -839,15 +911,18 @@ mod tests {
         assert_eq!(send(&app, Method::GET, &format!("{route}/claim/{code}"), Some(&st_), None).await.0, StatusCode::NOT_FOUND);
         let (_, who) = send(&app, Method::GET, &format!("{route}/claim/{code}"), Some(&ht), None).await;
         assert_eq!(who["name"], "sam");
-        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&st_), Some(json!({ "code": code }))).await.0, StatusCode::NOT_FOUND, "only the keeper hands it over");
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&st_), Some(json!({ "code": code, "through": 9 }))).await.0, StatusCode::NOT_FOUND, "only the keeper hands it over");
         assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&st_), Some(json!([life(2)]))).await.0, StatusCode::NOT_FOUND, "not Sam's to write yet");
         assert_eq!(send(&app, Method::GET, &format!("/api/games/{id}"), Some(&st_), None).await.0, StatusCode::NOT_FOUND, "nor to see");
 
+        // A host phone behind Yama (another of the host's devices saved newer taps) can't hand over
+        // what it doesn't have; the claim is still waiting afterwards.
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": code, "through": 0 }))).await.0, StatusCode::CONFLICT);
         // The host says yes: Sam's phone keeps the record now, as the host's own game.
         state.rooms.edge.lock().unwrap().insert(id.clone(), EdgeShare { user: host.clone(), key: "a".repeat(32), at: Instant::now() });
-        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": code }))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": code, "through": 9 }))).await.0, StatusCode::OK);
         assert!(!state.rooms.edge.lock().unwrap().contains_key(&id), "the old host's room is no longer offered");
-        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": code }))).await.0, StatusCode::NOT_FOUND, "a claim is used once, and it isn't the host's game to give now");
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": code, "through": 9 }))).await.0, StatusCode::NOT_FOUND, "a claim is used once, and it isn't the host's game to give now");
         let (status, saved) = send(&app, Method::POST, "/api/games", Some(&st_), Some(game(json!([life(1), life(2)])))).await;
         assert_eq!(status, StatusCode::OK, "Sam's phone saves it as the host would: {saved}");
         assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&st_), Some(json!([life(3)]))).await.0, StatusCode::OK);
@@ -871,13 +946,13 @@ mod tests {
         // Sam's phone hands it back to the host the same way: no keeper at all.
         let (_, back) = send(&app, Method::POST, &format!("{route}/claim"), Some(&ht), None).await;
         assert_eq!(send(&app, Method::GET, &format!("{route}/claim/{}", back["code"].as_str().unwrap()), Some(&st_), None).await.1["name"], "host");
-        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&st_), Some(json!({ "code": back["code"] }))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&st_), Some(json!({ "code": back["code"], "through": 9 }))).await.0, StatusCode::OK);
         let keeper: Option<String> = sqlx::query_scalar("SELECT kept_by FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
         assert_eq!(keeper, None);
 
         // Handed again, and Sam's phone dies: the host takes it back without asking.
         let (_, again) = send(&app, Method::POST, &format!("{route}/claim"), Some(&st_), None).await;
-        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": again["code"] }))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": again["code"], "through": 9 }))).await.0, StatusCode::OK);
         assert_eq!(send(&app, Method::POST, &format!("{route}/take-back"), Some(&ot), None).await.0, StatusCode::NOT_FOUND, "only the creator takes it back");
         assert_eq!(send(&app, Method::POST, &format!("{route}/take-back"), Some(&st_), None).await.0, StatusCode::OK, "Sam keeps it already");
         let keeper: Option<String> = sqlx::query_scalar("SELECT kept_by FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
@@ -889,7 +964,7 @@ mod tests {
 
         // Handed once more, then deleted by its creator: Sam's next save can't bring it back as Sam's.
         let (_, last) = send(&app, Method::POST, &format!("{route}/claim"), Some(&st_), None).await;
-        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": last["code"] }))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": last["code"], "through": 9 }))).await.0, StatusCode::OK);
         assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{id}"), Some(&ht), None).await.0, StatusCode::OK);
         assert_eq!(send(&app, Method::POST, "/api/games", Some(&st_), Some(game(json!([life(1)])))).await.0, StatusCode::GONE);
         let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();

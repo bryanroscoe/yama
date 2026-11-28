@@ -476,9 +476,11 @@ share key of the room it will host, derived from a secret of its own as for any 
 forwards it to the host only; the host phone never dispatches it as a tap. The host phone asks
 Yama whose account the code belongs to (`GET /claim/:code`, only for the account keeping the
 game) and asks its holder. On yes it stops recording, uploads every event it has (the tap still
-settling too), and calls `POST /hand-over`, which sets `games.kept_by` to the asking account
-(NULL when that is the creator) only while the caller still writes the game. Then it sends the
-old room one last snapshot with `next: {gameId, key, relay}` and `moved: true`. The Cloudflare
+settling too), and calls `POST /hand-over` with the newest event it has. Yama refuses if it has a
+newer one (another device of the account saved it), and otherwise sets `games.kept_by` to the
+asking account (NULL when that is the creator) only while the caller still writes the game. Then
+it sends the old room one last snapshot with `next: {gameId, key, relay}` and `moved: true`; if
+its connection dropped meanwhile it keeps reconnecting, recording nothing, until it can. The Cloudflare
 relay stores a snapshot with `next` at once, so the relay needed no change and a phone asleep
 through the hand-over follows when it reconnects. The asking phone recognises its own key,
 resumes the game from that snapshot (already all on Yama) and starts hosting; every other phone
@@ -489,8 +491,14 @@ deleting it and follows too.
 events, saves and the finish, and shares it on either relay. The keeper's saves are checked as the
 creator's (seats, lent decks and playgroup resolve as they did when the game started), so the
 game reads exactly as if the creator's phone had kept it. The creator's own stale copies are
-refused while someone else keeps it. The creator still owns it: only they delete or edit it, and
-they may take it back (`POST /take-back`) for a phone that died with it. The keeper may see the
+refused while someone else keeps it. The writer is checked again inside each write transaction,
+so a save can't land for an account that lost the game a moment before. The creator still owns
+it: only they delete or edit it, and they may take it back (`POST /take-back`) for a phone that
+died with it. An account that stops keeping a game (handing it on, or having it taken back) is
+remembered in `deleted_games` for that game, as a deletion is, so the copy left on its phone
+can never come back as a game of its own; deleting a kept game does the same for its keeper.
+On the server's own relay (local development) a room keeps accepting the last few hosts' keys,
+since every host of a game meets in the same room there. The keeper may see the
 game's page while it keeps it (it already had the whole game on its screen). Deleting the keeper's
 account gives the game back to its creator; an heir that keeps the game simply becomes its writer.
 
@@ -498,7 +506,10 @@ account gives the game back to its creator; an heir that keeps the game simply b
 nor can a host phone that can't reach Yama, since the record must move with the game. A dead
 host phone's game is taken back from Game history by its creator rather than claimed by a guest:
 nobody but the host can vouch for who should have it. A rematch started on the keeping device is
-that device's own game.
+that device's own game, and one whose account isn't in the game's playgroup plays it without the
+group. If the creator's account is deleted while another account keeps the game and the
+playgroup goes with it (no other account in it), the keeper inherits a game whose group is gone
+and its phone's next save is refused; that phone's game is then on Yama up to its last save.
 
 ## Phase board release integration (1 November 2026)
 

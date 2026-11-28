@@ -193,6 +193,8 @@ function open(gameId: string, attempt = 0) {
     opened = true;
     lastSent = null;
     setStatus({ connected: true });
+    // Handed over while the connection was down: say where it went, and nothing else.
+    if (pendingMove?.gameId === gameId) return announceMove();
     sendSnapshot();
   };
   ws.onmessage = (m) => {
@@ -300,23 +302,19 @@ async function handOver(gameId: string, req: HandOverAsk) {
     const sealed = await sealForHandOver(gameId);
     if (!sealed) throw new Error("This device couldn't save the game to Yama first. Try again once it's online.");
     if (!reachable()) throw new Error(offline);
-    await api(`/api/table/${gameId}/hand-over`, { method: "POST", json: { code: req.code } });
+    const through = sealed.log[sealed.log.length - 1]?.seq ?? 0;
+    await api(`/api/table/${gameId}/hand-over`, { method: "POST", json: { code: req.code, through } });
     handed = true;
     // The last word in this room: where the game went. Stored by the relay at once (a `next`
     // always is), so a phone that was asleep follows it when it reconnects. Same game, new room.
     const next = { gameId, key: req.key, ...(req.relay ? { relay: req.relay } : {}) };
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "state", setup: sealed.setup, log: sealed.log, layout: chosenLayout(sealed.setup.players.length), countTurns: getCountTurns(), showArt: getShowArt(), next, moved: true }));
-    }
+    const text = JSON.stringify({ type: "state", setup: sealed.setup, log: sealed.log, layout: chosenLayout(sealed.setup.players.length), countTurns: getCountTurns(), showArt: getShowArt(), next, moved: true });
     // This device follows it from its own seat, if it had one.
     const own = sealed.owner ? replay(sealed.setup, sealed.log).players.find((p) => p.userId === sealed.owner) : undefined;
-    if (own) localStorage.setItem(`yama.guest.${gameId}`, String(own.seat));
-    // Where this device goes (set first, so the table page follows it rather than the setup
-    // page), then the game leaves it (not finished, not deleted) and sharing stops: the server
-    // already stopped offering this device's room.
-    setStatus({ movedTo: `/table/join/${gameId}${joinFragment(req.key, req.relay === EDGE_MARK ? "edge" : "server")}` });
-    letGo(gameId);
-    reset();
+    pendingMove = { gameId, text, movedTo: `/table/join/${gameId}${joinFragment(req.key, req.relay === EDGE_MARK ? "edge" : "server")}`, seat: own?.seat ?? null };
+    // The connection dropped while Yama said yes: this device keeps connecting (and records
+    // nothing) until it can tell the room where the game went (`open`).
+    if (socket?.readyState === WebSocket.OPEN) announceMove();
   } finally {
     const waiting = held;
     held = [];
@@ -326,6 +324,24 @@ async function handOver(gameId: string, req: HandOverAsk) {
       for (const e of waiting) dispatch(e);
     }
   }
+}
+
+/** A hand-over Yama agreed to that this device still has to announce in its room. */
+let pendingMove: { gameId: string; text: string; movedTo: string; seat: number | null } | null = null;
+
+/** Tell the room where the game went, then let it go here and follow it there. */
+function announceMove() {
+  const move = pendingMove;
+  if (!move || !socket || socket.readyState !== WebSocket.OPEN || status.gameId !== move.gameId) return;
+  pendingMove = null;
+  socket.send(move.text);
+  if (move.seat !== null) localStorage.setItem(`yama.guest.${move.gameId}`, String(move.seat));
+  // Where this device goes (set first, so the table page follows it rather than the setup page),
+  // then the game leaves it (not finished, not deleted) and sharing stops: the server already
+  // stopped offering this device's room.
+  setStatus({ movedTo: move.movedTo });
+  letGo(move.gameId);
+  reset();
 }
 
 /** The page following the moved game has opened: nothing more to send this device to. */
@@ -484,6 +500,7 @@ function reset({ preserveLive = false }: { preserveLive?: boolean } = {}) {
   for (const t of [retry, postWait, snapshotTimer]) if (t) window.clearTimeout(t);
   if (liveTimer) window.clearInterval(liveTimer);
   retry = postWait = liveTimer = snapshotTimer = null;
+  pendingMove = null;
   unsubscribe?.();
   unsubscribe = null;
   const s = socket;
