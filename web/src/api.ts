@@ -817,6 +817,9 @@ export interface PodSeats {
 }
 
 export interface PlaygroupStats {
+  /** Finished games between people by total seats, including computer seats. */
+  player_counts?: { players: number; games: number }[];
+  player_count?: number | null;
   /** Finished games between people: what every figure is computed from. */
   games: number;
   /** Finished games against only the computer, left out of every figure. Absent from older servers. */
