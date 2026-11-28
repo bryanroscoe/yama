@@ -4,9 +4,12 @@
 
 import { RELAY_TOKEN, rematchSeat, replay, type LoggedEvent, type TableEvent, type TableSetup } from "@yama/core";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
-import { Button, ButtonLink, Pips } from "../components/ui";
-import { guestWsUrl, joinFragment, joinLink } from "./share";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { Button, ButtonLink, ErrorText, Pips } from "../components/ui";
+import { clearMovedTo, guestWsUrl, joinFragment, joinLink, roomToKeep, startHosting, type HandOverAsk } from "./share";
+import { api } from "../api";
+import { isViewing } from "../viewingFlag";
+import { getGame, markOutsider, resumeGame, useTable } from "./store";
 import type { LayoutKey } from "./layouts";
 import { useMe } from "../auth";
 import { forgetTable, rememberTable } from "./following";
@@ -27,9 +30,14 @@ const WATCH = -1;
 
 export function GuestTable() {
   const { gameId = "" } = useParams();
-  // A new game (the table played again) starts fresh: its own key, seat and connection.
-  return <GuestGame key={gameId} gameId={gameId} />;
+  // A new game (the table played again) starts fresh: its own key, seat and connection. So does
+  // the same game in a new room (handed to another device): the link's #fragment names the room.
+  const { hash } = useLocation();
+  return <GuestGame key={`${gameId}${hash}`} gameId={gameId} />;
 }
+
+/** How long a phone waits for the host's yes before it stops asking: as long as Yama keeps the ask. */
+const ASK_FOR_MS = 5 * 60 * 1000;
 
 function GuestGame({ gameId }: { gameId: string }) {
   const user = useMe().data?.id ?? null;
@@ -47,6 +55,19 @@ function GuestGame({ gameId }: { gameId: string }) {
   });
   const socket = useRef<WebSocket | null>(null);
   const navigate = useNavigate();
+  /** This device asked to keep the game: the room it will host, once the host says yes. */
+  const [asking, setAsking] = useState<HandOverAsk | null>(null);
+  const [askError, setAskError] = useState<unknown>(null);
+  // A device the game was just handed from lands here: it has nowhere else to be sent.
+  useEffect(() => clearMovedTo(), []);
+  useEffect(() => {
+    if (!asking) return;
+    const t = window.setTimeout(() => {
+      setAsking(null);
+      setAskError("The host's device didn't hand the game over. Ask again if it should come here.");
+    }, ASK_FOR_MS);
+    return () => window.clearTimeout(t);
+  }, [asking]);
 
   // A guest phone sits on the table too: keep its screen on once the game has loaded (and through
   // a dropped connection after that), but not on a join that never got in.
@@ -82,7 +103,27 @@ function GuestGame({ gameId }: { gameId: string }) {
         let msg;
         try { msg = JSON.parse(m.data); } catch { return; }
         if (msg.type === "host") setHostOnline(msg.connected);
-        else if (msg.type === "state" && msg.next?.gameId && msg.next?.key) {
+        else if (msg.type === "state" && msg.moved && msg.next?.gameId === gameId && typeof msg.next.key === "string") {
+          // The host handed the game to a device at the table. The same game, the same seat: follow
+          // it to that device's room, or, if this is the device that asked, keep it here now.
+          const next = msg.next as { gameId: string; key: string; relay?: string };
+          // This device's room for the game is always the same one (its own secret), so it knows
+          // the game is coming here even if it stopped waiting or reloaded since it asked.
+          if (user && !getGame() && next.key === roomToKeep(gameId).key && msg.setup?.id === gameId && Array.isArray(msg.log)) {
+            closed = true;
+            ws.close();
+            forgetTable(user, gameId);
+            resumeGame(msg.setup, msg.log);
+            startHosting(gameId);
+            // This game is recorded as its creator's; a game this account starts from it can't be
+            // in a playgroup it isn't in.
+            const group = (msg.setup as TableSetup).playgroupId;
+            if (group) void api<{ id: string }[]>("/api/playgroups").then((mine) => mine.some((g) => g.id === group) || markOutsider(gameId), () => undefined);
+            navigate("/table/play", { replace: true });
+            return;
+          }
+          navigate(`/table/join/${gameId}${joinFragment(next.key, next.relay === "cf" ? "edge" : "server")}`, { replace: true });
+        } else if (msg.type === "state" && msg.next?.gameId && msg.next?.key) {
           // The table is playing again: follow it to the next game, in the same seat.
           const next = msg.next as { gameId: string; key: string; relay?: string };
           // Play again numbers seats in the order people sat: the seat follows this device's player.
@@ -142,6 +183,22 @@ function GuestGame({ gameId }: { gameId: string }) {
   const chooseSeat = (s: number) => {
     localStorage.setItem(`yama.guest.${gameId}`, String(s));
     setSeat(s);
+  };
+  const local = useTable().game;
+  /** Ask the host's device to hand the game to this one (share.tsx, considerHandOver). */
+  const keepHere = async () => {
+    setAskError(null);
+    try {
+      // Yama ties the ask to this account; the host's device reads whose it is before saying yes.
+      const { code } = await api<{ code: string }>(`/api/table/${gameId}/claim`, { method: "POST" });
+      const ask: HandOverAsk = { type: "hand_over", code, ...roomToKeep(gameId) };
+      const ws = socket.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN || hostOnline !== true) throw new Error("The host's device is offline. Ask again once it's back.");
+      ws.send(JSON.stringify({ type: "event", event: ask }));
+      setAsking(ask);
+    } catch (e) {
+      setAskError(e);
+    }
   };
 
 
@@ -207,11 +264,31 @@ function GuestGame({ gameId }: { gameId: string }) {
   }
 
   const live = connected && hostOnline === true;
+  const keepHereControl = isViewing() ? null : !user ? (
+    <p className="small dim">To keep this game on this device instead, sign in to Yama on it.</p>
+  ) : local ? (
+    <p className="small dim">This device has its own game going. Finish or discard it to keep this one here.</p>
+  ) : asking ? (
+    <div className="stack">
+      <p className="small" role="status">Asking the host's device. Whoever holds it says yes there.</p>
+      <div className="row">
+        <Button variant="quiet" size="small" onClick={() => setAsking(null)}>Stop asking</Button>
+      </div>
+    </div>
+  ) : (
+    <div className="stack">
+      <div className="row">
+        <Button size="small" disabled={!live} onClick={() => void keepHere()}>Keep the game on this device</Button>
+      </div>
+      <p className="small dim">For when the host's device is leaving or running low. It saves the game to Yama from then on, and everyone following moves with it.</p>
+      <ErrorText small error={askError} />
+    </div>
+  );
   const status = live ? "Following the host’s device. Changes go to the shared table." : connected ? "The host’s device is offline. Wait for it to reconnect before changing totals." : (turnedAway ?? "Reconnecting. Wait before changing totals.");
   return (
     <DispatchContext.Provider value={send}>
       <TableScreen game={snapshot!} state={state} following={{
-        seat, onChooseSeat: chooseSeat,
+        seat, onChooseSeat: chooseSeat, keepHere: keepHereControl,
         status, layout: snapshot?.layout, countTurns: snapshot?.countTurns, showArt: snapshot?.showArt,
       }} />
       {!live && <div className="following-status" role="status">{status}</div>}

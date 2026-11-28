@@ -55,6 +55,12 @@ export interface LocalGame {
    * uploaded while that account is signed in here. Missing on games from before this was kept.
    */
   owner?: string;
+  /**
+   * Handed to this device at the table, and its account isn't in the game's playgroup: a game
+   * started from this one (Play again) is played without the group, since this account can't
+   * record a game in it.
+   */
+  outsider?: true;
 }
 
 /**
@@ -201,7 +207,14 @@ function restoreFinished() {
   }
   if (waitingGuest && hasEnded(waitingGuest)) waitingGuest = null;
 }
+/**
+ * The game being handed to another phone (share.tsx, handOver): it's uploaded and then let go,
+ * and nothing more is recorded on this one meanwhile.
+ */
+let handingOver: string | null = null;
 const mayEditCurrent = () => canWriteShared() && (!current || !hasEnded(current));
+/** This device may record a change to its game now. */
+const mayRecord = () => mayEditCurrent() && (!current || current.setup.id !== handingOver);
 
 function persist() {
   if (canWriteShared()) {
@@ -498,7 +511,7 @@ function pairsIn(pairs: LocalGame["cancelled"], log: LoggedEvent[]): LocalGame["
 }
 
 export function dispatch(event: TableEvent) {
-  if (!current || !mayEditCurrent()) return;
+  if (!current || !mayRecord()) return;
   // Nothing to log, and nothing for Undo to find later.
   if (!SAYS_MORE.has(event.type) && changesNothing(replay(current.setup, current.log), event)) return;
   const last = current.log[current.log.length - 1];
@@ -592,7 +605,7 @@ function undoStep(g: LocalGame): UndoStep | null {
 }
 
 export function canUndo() {
-  if (!current || !mayEditCurrent()) return false;
+  if (!current || !mayRecord()) return false;
   const step = undoStep(current);
   return !!step && !("stuck" in step);
 }
@@ -608,7 +621,7 @@ const STUCK: Partial<Record<TableEvent["type"], string>> = {
 
 /** Why Undo is off although something has happened, in a sentence for under the button. Null when it's on, or nothing has happened. */
 export function undoStuck(): string | null {
-  if (!current || !mayEditCurrent()) return null;
+  if (!current || !mayRecord()) return null;
   const step = undoStep(current);
   if (!step || !("stuck" in step)) return null;
   const what = STUCK[step.stuck] ?? "the last change";
@@ -619,7 +632,7 @@ export function undoStuck(): string | null {
 }
 
 export function undo() {
-  if (!current || !mayEditCurrent()) return;
+  if (!current || !mayRecord()) return;
   const step = undoStep(current);
   if (!step || "stuck" in step) return;
   if ("drop" in step) {
@@ -640,7 +653,7 @@ export function undo() {
 }
 
 export function canRedo() {
-  return !!current && mayEditCurrent() && current.redo.length > 0;
+  return !!current && mayRecord() && current.redo.length > 0;
 }
 
 export function redo() {
@@ -669,7 +682,7 @@ export function redo() {
  * just before it, so the log stays the one record the server copies.
  */
 export function finishGame(winnerSeat: number | null, details: FinishDetails = {}, firstSeat: number | null = null) {
-  if (!current || !mayEditCurrent()) return;
+  if (!current || !mayRecord()) return;
   const now = new Date();
   let log = current.log;
   if (firstSeat !== null && replay(current.setup, log).firstSeat !== firstSeat) {
@@ -715,7 +728,7 @@ export const DISCARD_GAME = { title: "Throw this game away?", body: "It won't co
 
 /** Throw away the game on this device. If it already reached Yama, it's deleted there too. */
 export function discardGame() {
-  if (!current || !mayEditCurrent()) return;
+  if (!current || !mayRecord()) return;
   // Never uploaded: it only has to go from this phone.
   if (current.guest) {
     forgetPrompts(current.setup.id);
@@ -883,7 +896,8 @@ export function sync(): Promise<void> {
         }
         // Only advance if the game is still the same one (it may have been finished meanwhile).
         if (current && stillCurrent()) {
-          current = { ...current, syncedThrough: Math.max(current.syncedThrough, through) };
+          // Everything frozen went up, a tap that was still settling included.
+          current = { ...current, syncedThrough: Math.max(current.syncedThrough, through, snapshot.frozenThrough ?? 0) };
         }
       }
       syncState = { syncing: false, error: null, lastSyncedAt: new Date().toISOString() };
@@ -940,6 +954,55 @@ const endListeners = new Set<(game: LocalGame) => void>();
 export function subscribeTableEnd(listener: (game: LocalGame) => void) {
   endListeners.add(listener);
   return () => { endListeners.delete(listener); };
+}
+
+/**
+ * Before handing `gameId` to another phone: stop recording, and upload every event it has, the
+ * last tap too. True once Yama has all of it; the other phone carries on from exactly this log.
+ * False (and recording again) when it isn't this device's game to hand over or Yama can't be
+ * reached.
+ */
+export async function sealForHandOver(gameId: string): Promise<LocalGame | null> {
+  if (!current || current.setup.id !== gameId || !mayRecord() || current.guest || !mineGame(current) || isGuest() || isViewing()) return null;
+  handingOver = gameId;
+  const last = current.log[current.log.length - 1]?.seq ?? 0;
+  current = { ...current, frozenThrough: Math.max(current.frozenThrough ?? 0, last) };
+  emit();
+  // An upload already going may have started before the freeze: then one more sends the rest.
+  for (let i = 0; i < 3 && current?.setup.id === gameId && (current.syncedThrough < last || !isPosted(gameId)); i++) {
+    await sync();
+    if (syncState.error) break;
+  }
+  if (current?.setup.id === gameId && current.syncedThrough >= last && isPosted(gameId)) return current;
+  releaseHandOver(gameId);
+  return null;
+}
+
+/** This device's account isn't in `gameId`'s playgroup (it was handed the game at the table). */
+export function markOutsider(gameId: string) {
+  if (current?.setup.id !== gameId || current.outsider || !canWriteShared()) return;
+  current = { ...current, outsider: true };
+  emit();
+}
+
+/** The hand-over didn't happen: this device records again. */
+export function releaseHandOver(gameId: string) {
+  if (handingOver !== gameId) return;
+  handingOver = null;
+  emit();
+}
+
+/**
+ * `gameId` went to another phone: it leaves this device without being finished or deleted
+ * (Yama keeps it, written by that phone now).
+ */
+export function letGo(gameId: string) {
+  if (handingOver === gameId) handingOver = null;
+  if (current?.setup.id !== gameId || !canWriteShared()) return;
+  forgetPrompts(gameId);
+  current = null;
+  derived = null;
+  emit();
 }
 
 /** Flush this document's admitted writes before pausing it for a sharing claim. */
