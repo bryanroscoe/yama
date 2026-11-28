@@ -312,6 +312,8 @@ Since 27 Nov 2026 the host phone can hand the game to another: a signed-in phone
 
 ### Playgroups
 
+Playgroup stats can be filtered by players per game. Each table size shows its finished-game count; player and commander records, rivalries, turns, duration and the deeper stats all use the selected size. Table size includes computer seats, while games with fewer than two people remain excluded.
+
 Join codes (the owner can make a new one, and removing an account changes it), guests without accounts, a members list where anyone can leave and the owner renames the group, removes people, hands it on or deletes it, game history, logging games played without Yama, offline too (with game type, starting life, first player, knockouts, win condition, fun and a note), win rates by player and commander beside the share they'd win by chance, win rate by turn order (with playgroup.gg's 4-player figures until the group has 20 games), how games were won, head to head, archnemesis, first out and last out, streaks, fun. Every rate shows its count, under 5 games it's marked provisional, and the page says when it was computed. The computer's seats and games against only the computer stay out of players' records, table rounds and online player turns are averaged apart, and the commander table reads Commander games only.
 
 Since 21 Nov 2026: head-to-head and archnemesis show whenever knockouts were recorded, with or without counted turns; the game length at the top is the typical one (the median of timed games); commanders with too few games fold behind Show more; a guest can't take a name someone in the group already has, guest or member; and the empty page says what a playgroup is, labels its two fields and explains a wrong code.
