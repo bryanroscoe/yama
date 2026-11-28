@@ -2,6 +2,40 @@
   "tools": [
     {
       "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "readOnlyHint": false
+      },
+      "description": "Preview or stage one missing game from an explicit Mythic Tools export. Never send credentials. Use preview_only=true to inspect identities and duplicates, then confirm any collision with request.choices[id]=import. Apply requires a current preview. Updates and links use the bridge page. Stage it only when they asked for it or agreed to it: the change waits in Yama for them to apply or discard, and nothing changes until then.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "op_id": {
+            "description": "Optional: your own id for this call, a new UUID each time you stage something. Calling again with the same op_id and the same arguments answers with the change already staged instead of staging another, so a retry after a lost reply is safe. Never reuse one for a different change: that is refused.",
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "type": "string"
+          },
+          "preview_only": {
+            "type": "boolean"
+          },
+          "request": {
+            "description": "One exported bridge game request. No credentials.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "name": "import_mythic_game",
+      "title": "Import one exported Mythic Tools game"
+    },
+    {
+      "annotations": {
         "openWorldHint": false,
         "readOnlyHint": true
       },

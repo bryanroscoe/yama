@@ -35,6 +35,7 @@ use sqlx::SqlitePool;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 mod decks;
+pub(crate) mod staged;
 #[cfg(test)]
 mod tests;
 
@@ -66,19 +67,19 @@ async fn status(CurrentUser(_): CurrentUser) -> Json<Value> {
 /// `{source, exported_at, me: {id, name}, games: [...]}`. Each game is Mythic's own record
 /// (`GET /game/{id}`, with or without its `{game: ...}` wrapper); the snippet adds
 /// `commander_name` to each deck, since Mythic names cards by its own ids.
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct Export {
     #[serde(default)]
     me: Option<MythicUser>,
     games: Vec<Entry>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct MythicUser {
     id: Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(untagged)]
 enum Entry {
     Wrapped { game: MGame },
@@ -93,7 +94,7 @@ impl Entry {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct MGame {
     id: Value,
     started_at: Option<String>,
@@ -109,12 +110,12 @@ struct MGame {
     formatid: Option<i64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct MRef {
     id: Option<Value>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct MPlayer {
     id: Option<Value>,
     /// A player without a Mythic account, kept by whoever logged the game.
@@ -128,7 +129,7 @@ struct MPlayer {
     deck: Option<MDeck>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct MDeck {
     name: Option<String>,
     commander_name: Option<String>,
@@ -173,7 +174,7 @@ fn derived_id(owner: &str, mythic_id: &str) -> String {
 
 // ── the request ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct ImportRequest {
     export: Export,
     /// The playgroup the games go in, if any. Players can only be matched to its members.
@@ -456,7 +457,7 @@ async fn yama_print<'c, E: sqlx::SqliteExecutor<'c>>(conn: E, game: &str) -> App
     Ok(crate::util::sha256_hex(&state.unwrap_or_default()))
 }
 
-async fn links(pool: &SqlitePool, owner: &str, kind: &str) -> AppResult<HashMap<String, (String, Option<String>)>> {
+async fn links<'c, E: sqlx::SqliteExecutor<'c>>(pool: E, owner: &str, kind: &str) -> AppResult<HashMap<String, (String, Option<String>)>> {
     let rows: Vec<(String, String, Option<String>)> =
         sqlx::query_as("SELECT mythic_id, yama_id, mythic_changed FROM mythic_links WHERE owner_id = ? AND kind = ?")
             .bind(owner)
@@ -467,7 +468,7 @@ async fn links(pool: &SqlitePool, owner: &str, kind: &str) -> AppResult<HashMap<
 }
 
 /// The members of a playgroup, with the name each goes by.
-async fn members(pool: &SqlitePool, playgroup: &str) -> AppResult<Vec<(String, Option<String>, String)>> {
+async fn members<'c, E: sqlx::SqliteExecutor<'c>>(pool: E, playgroup: &str) -> AppResult<Vec<(String, Option<String>, String)>> {
     Ok(sqlx::query_as(
         "SELECT m.id, m.user_id, COALESCE(u.display_name, m.guest_name, '') FROM playgroup_members m
            LEFT JOIN users u ON u.id = m.user_id WHERE m.playgroup_id = ?",
@@ -478,16 +479,21 @@ async fn members(pool: &SqlitePool, playgroup: &str) -> AppResult<Vec<(String, O
 }
 
 async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<Plan> {
+    let mut conn = pool.acquire().await?;
+    plan_in(&mut conn, owner, req).await
+}
+
+async fn plan_in(conn: &mut sqlx::SqliteConnection, owner: &str, req: &ImportRequest) -> AppResult<Plan> {
     if req.export.games.len() > MAX_GAMES {
         return Err(AppError::bad(format!("an upload can hold at most {MAX_GAMES} games")));
     }
     let playgroup = req.playgroup_id.as_deref().filter(|p| !p.is_empty());
     let group_members = match playgroup {
         Some(pg) => {
-            if !crate::playgroups::is_member(pool, pg, owner).await? {
+            if !crate::playgroups::is_member(&mut *conn, pg, owner).await? {
                 return Err(AppError::NotFound("playgroup"));
             }
-            members(pool, pg).await?
+            members(&mut *conn, pg).await?
         }
         None => vec![],
     };
@@ -495,7 +501,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
     let my_member = group_members.iter().find(|(_, u, _)| u.as_deref() == Some(owner)).map(|(id, _, _)| id.clone());
 
     // Players: the confirmed choice, else the link made before.
-    let player_links = links(pool, owner, "player").await?;
+    let player_links = links(&mut *conn, owner, "player").await?;
     let me = req
         .me
         .clone()
@@ -579,9 +585,9 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
     let member_user: HashMap<String, Option<String>> = group_members.iter().map(|(id, u, _)| (id.clone(), u.clone())).collect();
     let member_name: HashMap<&str, &str> = group_members.iter().map(|(id, _, n)| (id.as_str(), n.as_str())).collect();
     let ctx = Ctx { owner, playgroup, my_member, me: me.clone(), members: matched };
-    let game_links = links(pool, owner, "game").await?;
+    let game_links = links(&mut *conn, owner, "game").await?;
     let linked_yama: HashSet<&str> = game_links.values().map(|(y, _)| y.as_str()).collect();
-    let visible = visible_games(pool, owner).await?;
+    let visible = visible_games(&mut *conn, owner).await?;
 
     let mut games = Vec::new();
     let mut ids = HashSet::new();
@@ -625,9 +631,9 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
         if let Some((yama, changed)) = game_links.get(&p.mythic_id) {
             p.yama_id = Some(yama.clone());
             p.saved_yama = saved_yama(changed.as_deref()).map(str::to_string);
-            let row: Option<(String, String)> = sqlx::query_as("SELECT created_by, mode FROM games WHERE id = ?").bind(yama).fetch_optional(pool).await?;
+            let row: Option<(String, String)> = sqlx::query_as("SELECT created_by, mode FROM games WHERE id = ?").bind(yama).fetch_optional(&mut *conn).await?;
             if row.is_some() {
-                p.seen_yama = Some(yama_print(pool, yama).await?);
+                p.seen_yama = Some(yama_print(&mut *conn, yama).await?);
             }
             let edited_in_yama = matches!((&p.saved_yama, &p.seen_yama), (Some(saved), Some(seen)) if saved != seen);
             (p.status, p.action) = match row {
@@ -707,7 +713,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
             None if !p.matches.is_empty() => (p.status, p.action) = ("match", "skip"),
             None => {
                 // Made before, but its link went (an import cut short): saving it again is safe.
-                let exists: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?").bind(&derived).fetch_optional(pool).await?;
+                let exists: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ?").bind(&derived).fetch_optional(&mut *conn).await?;
                 if exists.as_deref() == Some(owner) {
                     p.status = "update";
                     p.action = "update";
@@ -723,7 +729,7 @@ async fn plan(pool: &SqlitePool, owner: &str, req: &ImportRequest) -> AppResult<
 }
 
 /// In-person games the person can see, to offer as the same game as one from Mythic.
-async fn visible_games(pool: &SqlitePool, owner: &str) -> AppResult<Vec<Candidate>> {
+async fn visible_games<'c, E: sqlx::SqliteExecutor<'c>>(pool: E, owner: &str) -> AppResult<Vec<Candidate>> {
     Ok(sqlx::query_as::<_, (String, String, i64, String)>(
         "SELECT g.id, g.started_at, (SELECT COUNT(*) FROM game_seats s WHERE s.game_id = g.id),
                 (SELECT json_group_array(json_array(s.member_id, s.user_id, COALESCE(u.display_name, s.guest_name, pm.guest_name, ''), s.guest_name))

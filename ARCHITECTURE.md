@@ -2416,6 +2416,18 @@ Spirit, Veloci-Ramp-Tor), 9 behind, 71 in the pack and 3 with too few games.
 
 `npm run polish` (`web/scripts/polish/`, docs/polish.md) screenshots every page at laptop, tablet and phone sizes, scrolling down each one and opening its menus, sheets, tabs and disclosures, and checks layout and copy as it goes (overflow, clipped or overlapping text, small targets, the Night table rules, copy slips, off-scale spacing). It's for Claude's polish passes and for Bryan to page through. A run is read-only: writes are blocked at the browser, so it can run on production as Bryan with a short session minted on the server (`yama-server user session`).
 
+### Staged single-game Mythic import (2026-11-27)
+
+MCP `import_mythic_game` accepts one already exported explicit game through the existing
+Mythic bridge planner, and stages a missing-game import in `assistant_changes`. Preview-only
+calls show identity mappings and duplicate candidates without staging. Applying revalidates
+membership, identities, candidates and saved state before using the bridge's atomic game/link/
+private-note writer in one transaction with its identity mappings. Preview reads share one database
+snapshot. The root subjects list lets account deletion purge retained identities and the shared
+staging guard refuse a subject deleted since preview. An identical completed import satisfies a retried apply; edits require a
+fresh preview. The tool cannot update existing games or link accounts. Mythic credentials and
+server-side fetching remain outside this boundary; the bridge flag gates both stage and apply.
+
 ### Mythic Tools bridge (2026-10-31, proposal)
 
 Bryan (2026-10-31): "productionize it on the site so people who use this site can import data from there", then "I would love to be able to export my Yama data back into Mythic Tools … some sort of way of matching up data and be able to upsert", because friends still use Mythic. "This might be something that we get rid of later so it should be written in a way that we can easily rip this out." Mythic Tools has no public API or export for games; its web app (mythic.tools, Nuxt) talks to a private REST API with a Firebase sign-in. Endpoints, request signing and what was learnt exporting Bryan's own account are in [docs/mythic-bridge.md](docs/mythic-bridge.md). The API can change without notice, so everything here is best-effort and says so in the UI.

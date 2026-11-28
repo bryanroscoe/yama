@@ -617,3 +617,128 @@ fn a_list_prints_the_same_however_its_rows_are_split() {
     // The value the send snippet computes in the browser for the same list.
     assert_eq!(a, crate::util::sha256_hex("c:a:1\nm:b:2"));
 }
+
+#[tokio::test]
+async fn staged_single_game_import_is_private_stale_checked_and_retry_safe() {
+    let st = crate::testutil::state().await;
+    let (id, _) = user(&st.pool, "importer@example.com").await;
+    let caller = crate::auth::User { id: id.clone(), email: "importer@example.com".into(), display_name: "Importer".into(), is_admin: false, limited: false, power: false, guest: false };
+    let req = json!({"export":export(vec![mythic_game(9001, "2026-10-04T01:35:04.551Z", 2, Some("private note"))]), "token":"must be discarded"});
+    let (payload, detail) = staged::prepare(&st, &caller, &req).await.unwrap();
+    assert!(detail.contains("new"));
+    assert!(!payload.to_string().contains("must be discarded"));
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM games").fetch_one(&st.pool).await.unwrap(), 0);
+    let mut stale = payload.clone();
+    stale["snapshot"]["me"] = json!("different");
+    assert!(staged::apply(&st, &caller, &stale).await.is_err());
+    let result = staged::apply(&st, &caller, &payload).await.unwrap();
+    assert_eq!(result["link"], format!("/table/games/{}", derived_id(&id, "9001")));
+    while st.limits.mythic_bridge.check_user(&caller).is_ok() {}
+    assert_eq!(staged::apply(&st, &caller, &payload).await.unwrap(), result);
+    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM games").fetch_one(&st.pool).await.unwrap(), 1);
+    let note: Option<String> = sqlx::query_scalar("SELECT note FROM games").fetch_one(&st.pool).await.unwrap();
+    assert_eq!(note.as_deref(), Some(NOTE));
+    let other = crate::auth::User { id: "other".into(), ..caller.clone() };
+    assert!(staged::apply(&st, &other, &payload).await.is_err());
+    sqlx::query("UPDATE games SET starting_life=20 WHERE created_by=?").bind(&id).execute(&st.pool).await.unwrap();
+    assert!(staged::apply(&st, &caller, &payload).await.is_err());
+    let mut disabled = st.clone();
+    std::sync::Arc::make_mut(&mut disabled.cfg).mythic_bridge = false;
+    assert!(staged::prepare(&disabled, &caller, &req).await.is_err());
+}
+
+#[tokio::test]
+async fn staged_import_requires_single_game_and_explicit_collision_choice() {
+    let st = crate::testutil::state().await;
+    let (id, _) = user(&st.pool, "importer@example.com").await;
+    let caller = crate::auth::User { id, email: "importer@example.com".into(), display_name: "Importer".into(), is_admin: false, limited: false, power: false, guest: false };
+    let game = mythic_game(9001, "2026-10-04T01:35:04.551Z", 2, None);
+    assert!(staged::prepare(&st, &caller, &json!({"export":export(vec![])})).await.is_err());
+    assert!(staged::prepare(&st, &caller, &json!({"export":export(vec![game.clone(),game.clone()])})).await.is_err());
+    let req = json!({"export":export(vec![game])});
+    let (payload, _) = staged::prepare(&st, &caller, &req).await.unwrap();
+    staged::apply(&st, &caller, &payload).await.unwrap();
+    // A game already logged in Yama, without a remembered Mythic link, is a candidate.
+    sqlx::query("DELETE FROM mythic_links WHERE kind='game'").execute(&st.pool).await.unwrap();
+    let mut second = req.clone();
+    second["export"]["games"][0]["game"]["id"] = json!(9002);
+    let (blocked, _) = staged::prepare(&st, &caller, &second).await.unwrap();
+    assert_eq!(blocked["snapshot"]["games"][0]["status"], "match");
+    assert!(staged::apply(&st, &caller, &blocked).await.is_err());
+    second["choices"] = json!({"9002":"import"});
+    let (confirmed, _) = staged::prepare(&st, &caller, &second).await.unwrap();
+    staged::apply(&st, &caller, &confirmed).await.unwrap();
+    let mut foreign = req;
+    foreign["playgroup_id"] = json!("not-their-playgroup");
+    assert!(staged::prepare(&st, &caller, &foreign).await.is_err());
+}
+
+#[tokio::test]
+async fn staged_import_refuses_changed_member_identity_and_foreign_mapping() {
+    let st = crate::testutil::state().await;
+    let app = crate::routes::app(st.clone());
+    let (id, token) = user(&st.pool, "importer@example.com").await;
+    let caller = crate::auth::User { id, email: "importer@example.com".into(), display_name: "Importer".into(), is_admin: false, limited: false, power: false, guest: false };
+    let (pg, _) = group(&app, &token).await;
+    let (status, guest) = send(&app, Method::POST, &format!("/api/playgroups/{pg}/guests"), Some(&token), Some(json!({"name":"Chris"}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let member = guest["id"].as_str().unwrap();
+    let mut req = json!({"export":export(vec![mythic_game(9003,"2026-10-04T01:35:04.551Z",2,None)]),"playgroup_id":pg,"players":{"2":member}});
+    let (payload, _) = staged::prepare(&st, &caller, &req).await.unwrap();
+    let (account, _) = user(&st.pool, "chris@example.com").await;
+    sqlx::query("UPDATE playgroup_members SET user_id=?, guest_name=NULL WHERE id=?").bind(account).bind(member).execute(&st.pool).await.unwrap();
+    assert!(staged::apply(&st, &caller, &payload).await.is_err());
+    req["players"]["2"] = json!("foreign-member");
+    assert!(staged::prepare(&st, &caller, &req).await.is_err());
+    assert_eq!(sqlx::query_scalar::<_,i64>("SELECT COUNT(*) FROM games").fetch_one(&st.pool).await.unwrap(),0);
+}
+
+#[tokio::test]
+async fn account_deletion_purges_other_owners_import_snapshots_in_every_status() {
+    let st = crate::testutil::state().await;
+    let app = crate::routes::app(st.clone());
+    let (owner, token) = user(&st.pool, "owner@example.com").await;
+    let (subject, _) = user(&st.pool, "subject@example.com").await;
+    let (pg, _) = group(&app, &token).await;
+    let (status, guest) = send(&app, Method::POST, &format!("/api/playgroups/{pg}/guests"), Some(&token), Some(json!({"name":"Subject"}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let member = guest["id"].as_str().unwrap();
+    sqlx::query("UPDATE playgroup_members SET user_id=?, guest_name=NULL WHERE id=?").bind(&subject).bind(member).execute(&st.pool).await.unwrap();
+    for status in ["pending","applied","discarded"] {
+        for (kind, payload) in [("direct",json!({"subjects":[subject]})),("unrelated",json!({"subjects":[owner],"note":subject,"tag":member,"external_id":subject}))] {
+            sqlx::query("INSERT INTO assistant_changes (id,owner_id,kind,summary,detail,payload,via,status,created_at) VALUES (?,?, 'import_mythic_game','Subject','Subject',?,'key',?,'now')")
+                .bind(format!("{status}-{kind}")).bind(&owner).bind(payload.to_string()).bind(status).execute(&st.pool).await.unwrap();
+        }
+    }
+    let mut tx = st.pool.begin().await.unwrap();
+    crate::admin::delete::delete_rows(&mut tx, &subject).await.unwrap();
+    tx.commit().await.unwrap();
+    let kept: Vec<(String, String)> = sqlx::query_as("SELECT id,payload FROM assistant_changes WHERE owner_id=? ORDER BY id").bind(&owner).fetch_all(&st.pool).await.unwrap();
+    assert_eq!(kept.len(),3);
+    for (id, payload) in kept {
+        assert!(id.ends_with("-unrelated"));
+        assert_eq!(serde_json::from_str::<Value>(&payload).unwrap(),json!({"subjects":[owner],"note":subject,"tag":member,"external_id":subject}));
+    }
+}
+
+#[tokio::test]
+async fn staged_import_rolls_back_game_notes_and_player_links_together() {
+    let st = crate::testutil::state().await;
+    let app = crate::routes::app(st.clone());
+    let (id, token) = user(&st.pool, "importer@example.com").await;
+    let caller = crate::auth::User { id: id.clone(), email: "importer@example.com".into(), display_name: "Importer".into(), is_admin: false, limited: false, power: false, guest: false };
+    let (pg, _) = group(&app, &token).await;
+    let (_, guest) = send(&app, Method::POST, &format!("/api/playgroups/{pg}/guests"), Some(&token), Some(json!({"name":"Chris"}))).await;
+    let req = json!({"export":export(vec![mythic_game(9005,"2026-10-04T01:35:04.551Z",2,Some("private"))]),"playgroup_id":pg,"players":{"2":guest["id"]}});
+    let (payload, _) = staged::prepare(&st, &caller, &req).await.unwrap();
+    // Fail the final mapping write after the game, note and other player mapping were saved.
+    sqlx::query("CREATE TRIGGER reject_me BEFORE INSERT ON mythic_links WHEN NEW.kind='player' AND NEW.mythic_id='1' BEGIN SELECT RAISE(ABORT,'injected failure'); END")
+        .execute(&st.pool).await.unwrap();
+    assert!(staged::apply(&st, &caller, &payload).await.is_err());
+    for table in ["games","mythic_links","mythic_game_notes"] {
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}"))).fetch_one(&st.pool).await.unwrap();
+        assert_eq!(count,0,"{table} must roll back");
+    }
+    sqlx::query("DROP TRIGGER reject_me").execute(&st.pool).await.unwrap();
+    staged::apply(&st, &caller, &payload).await.unwrap();
+}

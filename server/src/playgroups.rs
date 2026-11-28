@@ -98,7 +98,7 @@ pub(crate) struct Group {
     members: Vec<Member>,
 }
 
-pub async fn is_member(pool: &SqlitePool, group: &str, user: &str) -> AppResult<bool> {
+pub async fn is_member<'c, E: sqlx::SqliteExecutor<'c>>(pool: E, group: &str, user: &str) -> AppResult<bool> {
     let found: Option<String> = sqlx::query_scalar(
         "SELECT g.id FROM playgroups g LEFT JOIN playgroup_members m ON m.playgroup_id = g.id
          WHERE g.id = ? AND (g.owner_id = ? OR m.user_id = ?) LIMIT 1",
