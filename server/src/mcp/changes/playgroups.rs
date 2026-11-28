@@ -434,11 +434,16 @@ mod tests {
             let (id, _) = proposal(&st, &u, &args).await;
             sqlx::query("UPDATE assistant_changes SET status=? WHERE id=?").bind(status).bind(&id).execute(&st.pool).await.unwrap();
             let friend: String = sqlx::query_scalar("SELECT user_id FROM playgroup_members WHERE id='b'").fetch_one(&st.pool).await.unwrap();
+            let unrelated = json!({"subjects":[u.id],"note":friend,"external_id":friend});
+            sqlx::query("INSERT INTO assistant_changes(id,owner_id,kind,summary,detail,payload,via,status,created_at) VALUES('unrelated',?,'split_playgroup','Unrelated','Unrelated',?,'key',?,'now')")
+                .bind(&u.id).bind(unrelated.to_string()).bind(status).execute(&st.pool).await.unwrap();
             let mut tx = st.pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
             crate::admin::delete::delete_rows(&mut tx, &friend).await.unwrap();
             tx.commit().await.unwrap();
             let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM assistant_changes WHERE id=?").bind(id).fetch_one(&st.pool).await.unwrap();
             assert_eq!(count, 0, "{status} proposal retains no deleted subject data");
+            let kept: String = sqlx::query_scalar("SELECT payload FROM assistant_changes WHERE id='unrelated'").fetch_one(&st.pool).await.unwrap();
+            assert_eq!(kept, unrelated.to_string(), "{status} incidental text does not declare a subject");
         }
     }
 
