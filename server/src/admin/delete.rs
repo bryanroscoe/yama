@@ -396,7 +396,7 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
         .bind(id).execute(&mut **tx).await?;
     // Split proposals keep private snapshots of other members, even after apply/discard.
     // Remove the whole proposal when any selected subject leaves, before anonymizing rows.
-    r.rows_deleted += sqlx::query("DELETE FROM assistant_changes WHERE kind='split_playgroup' AND EXISTS (SELECT 1 FROM json_tree(assistant_changes.payload) WHERE type='text' AND atom=?)")
+    r.rows_deleted += sqlx::query("DELETE FROM assistant_changes WHERE kind='split_playgroup' AND EXISTS (SELECT 1 FROM json_each(assistant_changes.payload, '$.subjects') WHERE type='text' AND value=?)")
         .bind(id).execute(&mut **tx).await?.rows_affected();
 
     // ── playgroups ─────────────────────────────────────────────────────────
