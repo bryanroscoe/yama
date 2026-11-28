@@ -451,7 +451,7 @@ async fn a_deck_edit_waits_for_review_then_applies_once() {
     let (err, text) = call(&app, &mcp, "discard_change", json!({"id": stale})).await;
     assert!(!err, "{text}");
     let (_, waiting) = call(&app, &mcp, "changes", json!({})).await;
-    assert_eq!(waiting, "No changes are waiting for their review.");
+    assert_eq!(waiting.split_once('\n').map(|(_, body)| body), Some("No changes are waiting for their review."));
     let (status, all) = send(&app, Method::GET, "/api/assistant/changes?status=all", Some(&a_session), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(all.as_array().unwrap().len(), 2);
@@ -1031,7 +1031,7 @@ async fn a_staging_call_repeated_with_its_op_id_stages_once() {
     // and none for stores.
     let (_, r) = send(&app, Method::POST, "/mcp", Some(&mcp), Some(rpc("tools/list", json!({})))).await;
     let with_lab = [
-        "add_wish", "edit_deck", "delete_deck", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
+        "add_wish", "split_playgroup", "edit_deck", "delete_deck", "propose_swap", "answer_review", "mark_bought", "swap_in_prints",
         "mark_installed", "start_lab_run", "add_lab_games", "rerun_lab_run", "cancel_lab_run", "add_to_collection", "move_cards", "set_condition",
         "update_deck", "remove_wish", "create_container", "update_container", "delete_container", "remove_from_collection", "edit_copies", "save_deck",
     ];

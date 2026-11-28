@@ -3767,3 +3767,7 @@ on the line) in its header's four spare bytes, and Scanner diagnostics keep it w
   APK ignores the request, so pages and APKs of either age work together.
 - APK and web; no server or model change. Evidence, records to check and what wasn't checked in
   [docs/scanner.md](docs/scanner.md#focus-on-the-collector-line-2026-11-27). Not yet checked on a phone.
+
+### 2026-11-27: Staged playgroup splits
+
+`split_playgroup` creates a subset group and moves explicit finished in-person games in one transaction. Only the source owner and game recorder can apply it; all seats must be exactly the selected existing account members. The proposal captures membership and game identity and rechecks them under the write lock. Seat member IDs are remapped, results/events preserved, and the existing history correction audit and player revision fences prevent stale sync and stale player undos. This audit kind is not undoable through the player correction CLI. Applying retries uses the staged change operation ID.

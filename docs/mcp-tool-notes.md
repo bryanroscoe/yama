@@ -108,3 +108,15 @@ to dig through old conversations:
 - `replaces` with an entry's id corrects it, and needs an `op_id`; `op_id` makes a retry record it once.
 
 `track_build` takes `asked` and `conversation` and records them with the build it tracks.
+
+### Splitting a playgroup
+
+`split_playgroup` takes an owned source group's ID, the new name, exact unambiguous
+account member display names (including the caller), and explicit game IDs. Each
+game must be finished, in person, recorded by the caller, and contain exactly
+those accounts; it can be in the source group or ungrouped. Guests and AI seats
+are refused. The proposal previews every game and warns that historical editing
+and offline writes will be fenced. Applying rechecks membership and game state,
+creates the subset group, remaps member IDs and records an audit atomically.
+Results and events are untouched. The player correction CLI cannot undo this
+audit kind. Never infer which games should move from a name search alone.

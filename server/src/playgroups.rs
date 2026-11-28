@@ -47,7 +47,7 @@ pub fn router() -> Router<AppState> {
 
 /// A name someone typed, trimmed: not blank, one line (no control characters, nor Unicode's
 /// line and paragraph separators), at most `max` characters.
-fn clean_name(raw: &str, what: &str, max: usize) -> AppResult<String> {
+pub(crate) fn clean_name(raw: &str, what: &str, max: usize) -> AppResult<String> {
     let name = raw.trim();
     if name.is_empty() {
         return Err(AppError::bad(format!("{what} needs a name")));
@@ -68,7 +68,7 @@ fn same_name(a: &str, b: &str) -> bool {
 
 /// A join code no playgroup has. (The column is unique, so a clash that slipped past this check
 /// would fail the write rather than give two groups one code.)
-async fn fresh_code(conn: &mut SqliteConnection) -> AppResult<String> {
+pub(crate) async fn fresh_code(conn: &mut SqliteConnection) -> AppResult<String> {
     loop {
         let code = short_code(6);
         let taken: Option<String> = sqlx::query_scalar("SELECT id FROM playgroups WHERE join_code = ?").bind(&code).fetch_optional(&mut *conn).await?;
