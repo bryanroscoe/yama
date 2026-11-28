@@ -745,7 +745,7 @@ pub(super) const TOOLS: &[Tool] = &[
         handler: stage!(changes::split_playgroup),
         stages: Some(changes::staging::SPLIT_PLAYGROUP),
         output: None,
-        untrusted: None,
+        untrusted: Some("other players as well as the account owner (names)"),
         renamed: &[],
         needs: Needs::Nothing,
     },
