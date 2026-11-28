@@ -42,6 +42,7 @@ export function GroupPage() {
       )}
       {group && (
         <GroupDetail
+          key={group.id}
           group={group}
           switcher={
             groups.data && groups.data.length > 1 ? (
@@ -75,13 +76,15 @@ const listNames = (xs: string[]) => (xs.length <= 1 ? (xs[0] ?? "") : `${xs.slic
 
 function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNode }) {
   const me = useMe().data;
-  const stats = useQuery({ queryKey: ["stats", group.id], queryFn: ({ signal }) => api<PlaygroupStats>(`/api/playgroups/${group.id}/stats`, { signal }) });
+  const [playerCount, setPlayerCount] = useState<number | null>(null);
+  const stats = useQuery({ queryKey: ["stats", group.id, playerCount], queryFn: ({ signal }) => api<PlaygroupStats>(`/api/playgroups/${group.id}/stats${playerCount === null ? "" : `?player_count=${playerCount}`}`, { signal }) });
   const games = useQuery({ queryKey: ["games", "group", group.id], queryFn: ({ signal }) => api<GameRow[]>(`/api/games?playgroup=${group.id}`, { signal }) });
   const [shared, setShared] = useState(false);
   const s = stats.data;
   const keys = playerKeys(group.members);
   const myKey = keys.account(me?.id);
-  const read = readGames(games.data ?? [], myKey, keys.seat);
+  const sizedGames = (games.data ?? []).filter((g) => playerCount === null || g.seats.length === playerCount);
+  const read = readGames(sizedGames, myKey, keys.seat);
   const playerKey = keys.player;
   const favourites = new Map((s?.players ?? []).map((p) => [p.key, read.favourite(playerKey(p))]));
   const rivalArt = (r?: Rival) => (r ? read.favourite(r.key) : null);
@@ -98,7 +101,7 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
   const art = useCardArt([...favourites.values(), ...commanders.map((c) => c.commander), rivalArt(read.beatsMe), rivalArt(read.iBeat)]);
   const artOf = (name: string | null | undefined) => (name ? art.get(name) : undefined);
   // The first game the list goes back to, when it holds every game (the server sends up to 200).
-  const first = games.data && games.data.length < 200 ? games.data.filter((g) => g.status === "finished").at(-1)?.started_at : undefined;
+  const first = games.data && games.data.length < 200 ? sizedGames.filter((g) => g.status === "finished").at(-1)?.started_at : undefined;
   const since = first ? fmtMonth(first) : null;
   const credited = [
     ...[...favourites.values()].map(artOf),
@@ -163,14 +166,23 @@ function GroupDetail({ group, switcher }: { group: Playgroup; switcher: ReactNod
         </div>
       </div>
 
+      <Field label="Players per game">
+        <select value={playerCount ?? "all"} onChange={(e) => { setPlayerCount(e.target.value === "all" ? null : Number(e.target.value)); setAllCommanders(false); }}>
+          <option value="all">All table sizes</option>
+          {(s?.player_counts ?? (playerCount === null ? [] : [{ players: playerCount, games: 0 }])).map((size) => (
+            <option key={size.players} value={size.players}>{size.players} players ({size.games} {size.games === 1 ? "game" : "games"})</option>
+          ))}
+        </select>
+      </Field>
+      <p className="small dim">All stats below use this table size, including computer seats.</p>
       <ErrorText error={stats.error ?? games.error} />
-      {s && s.games === 0 && <p className="dim">No finished games yet.</p>}
+      {s && s.games === 0 && <p className="dim">{playerCount === null ? "No finished games yet." : `No finished ${playerCount}-player games yet.`}</p>}
       {s && s.games > 0 && (
         <>
           <section className="grp-section" aria-labelledby="grp-players">
             <div className="grp-section-head">
               <h2 id="grp-players">Players</h2>
-              <span className="grp-wide grp-hint">The line marks an even share: 25% at a 4-player table. Fewer than {under} games is too few to say. The computer isn't listed, and a game it wins is a loss for everyone.</span>
+              <span className="grp-wide grp-hint">The line marks an even share for the tables each player played. Fewer than {under} games is too few to say. The computer isn't listed, and a game it wins is a loss for everyone.</span>
             </div>
             <ul className="grp-players">
               {s.players.map((p) => {

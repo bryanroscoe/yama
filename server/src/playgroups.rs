@@ -17,7 +17,7 @@ use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::routes::AppState;
 use crate::util::{new_id, now, short_code};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -521,6 +521,8 @@ pub(crate) struct Stats {
     /// Finished games with fewer than two people (against only the computer, or a table of one).
     /// They stay in the playgroup's history and are left out of every figure here.
     solo_games: i64,
+    player_counts: Vec<PlayerCount>,
+    player_count: Option<usize>,
     players: Vec<crate::stats::PlayerStat>,
     commanders: Vec<crate::stats::CommanderStat>,
     /// Rounds, from games at the table and logged ones.
@@ -540,12 +542,27 @@ pub(crate) struct Stats {
     computed_at: String,
 }
 
-async fn stats(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<Json<Stats>> {
-    Ok(Json(stats_for(&st.pool, &user.id, &id).await?))
+#[derive(Deserialize, Default)]
+struct StatsQuery {
+    player_count: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct PlayerCount {
+    players: usize,
+    games: usize,
+}
+
+async fn stats(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>, Query(query): Query<StatsQuery>) -> AppResult<Json<Stats>> {
+    Ok(Json(stats_for_size(&st.pool, &user.id, &id, query.player_count).await?))
 }
 
 /// The Group page's stats for one playgroup this account is in, shared with the MCP.
 pub(crate) async fn stats_for(pool: &SqlitePool, user_id: &str, id: &str) -> AppResult<Stats> {
+    stats_for_size(pool, user_id, id, None).await
+}
+
+async fn stats_for_size(pool: &SqlitePool, user_id: &str, id: &str, player_count: Option<usize>) -> AppResult<Stats> {
     use crate::stats as s;
     if !is_member(pool, id, user_id).await? {
         return Err(AppError::NotFound("playgroup"));
@@ -553,7 +570,19 @@ pub(crate) async fn stats_for(pool: &SqlitePool, user_id: &str, id: &str) -> App
     // A playgroup's stats compare the people in it. A game one person played against the
     // computer has nobody to compare them with, so it is counted and set aside.
     let (games, solo): (Vec<s::GameFacts>, Vec<s::GameFacts>) = s::finished_games(pool, s::Scope::Playgroup(id)).await?.into_iter().partition(|g| g.between_people());
+    if player_count.is_some_and(|n| n < 2) {
+        return Err(AppError::BadRequest("Player count must be at least two".into()));
+    }
+    // Table size includes computer seats, matching the even-share and turn-order denominators.
+    let mut counts = std::collections::BTreeMap::new();
+    for g in &games {
+        *counts.entry(g.seats.len()).or_insert(0usize) += 1;
+    }
+    let player_counts = counts.into_iter().map(|(players, games)| PlayerCount { players, games }).collect();
+    let games: Vec<_> = games.into_iter().filter(|g| player_count.is_none_or(|n| g.seats.len() == n)).collect();
     Ok(Stats {
+        player_counts,
+        player_count,
         games: games.len() as i64,
         solo_games: solo.len() as i64,
         players: s::players(&games),
@@ -959,6 +988,22 @@ mod tests {
         }
         let stats = serde_json::to_value(stats_for(&pool, "ana", "pg").await.unwrap()).unwrap();
         assert_eq!((&stats["games"], &stats["solo_games"]), (&serde_json::json!(2), &serde_json::json!(1)));
+        assert_eq!(stats["player_counts"], json!([{ "players": 2, "games": 1 }, { "players": 3, "games": 1 }]));
+        let two = serde_json::to_value(stats_for_size(&pool, "ana", "pg", Some(2)).await.unwrap()).unwrap();
+        assert_eq!(two["games"], 1);
+        assert_eq!(two["players"][0]["games"], 1);
+        assert_eq!(two["average_online_turns"], Value::Null);
+        assert_eq!(two["win_conditions"]["recorded"], json!([{ "condition": "combat", "games": 1 }]));
+        assert_eq!(two["player_counts"], stats["player_counts"]);
+        let three = serde_json::to_value(stats_for_size(&pool, "ana", "pg", Some(3)).await.unwrap()).unwrap();
+        assert_eq!(three["games"], 1, "solo computer games remain excluded");
+        assert_eq!(three["average_turns"], Value::Null);
+        assert_eq!(three["win_conditions"]["recorded"], json!([{ "condition": "poison", "games": 1 }]));
+        let empty = stats_for_size(&pool, "ana", "pg", Some(4)).await.unwrap();
+        assert_eq!(empty.games, 0);
+        assert!(empty.players.is_empty());
+        assert!(matches!(stats_for_size(&pool, "cat", "pg", Some(2)).await, Err(AppError::NotFound(_))));
+        assert!(matches!(stats_for_size(&pool, "ana", "pg", Some(1)).await, Err(AppError::BadRequest(_))));
         // Only the two people are players, each with the two games between people.
         let players: Vec<(&str, i64, i64)> = stats["players"].as_array().unwrap().iter().map(|p| (p["name"].as_str().unwrap(), p["games"].as_i64().unwrap(), p["wins"].as_i64().unwrap())).collect();
         assert_eq!(players, vec![("ana", 2, 2), ("ben", 2, 0)]);

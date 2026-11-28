@@ -88,7 +88,7 @@ function PodTable({ pod, reference, under }: { pod: PodSeats | null; reference: 
 function TurnOrder({ s }: { s: PlaygroupStats }) {
   const ref = s.seat_reference;
   const refPod = s.seats.find((p) => p.players === ref.players) ?? null;
-  const showRef = (refPod?.games ?? 0) < ref.show_until_games;
+  const showRef = (s.player_count == null || s.player_count === ref.players) && (refPod?.games ?? 0) < ref.show_until_games;
   return (
     <section>
       <h2>Turn order</h2>
