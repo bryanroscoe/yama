@@ -14,7 +14,7 @@ vi.mock("../auth", () => ({ useMe: () => ({ data: fixtures.user ? { id: fixtures
 vi.mock("../api", () => ({ api: vi.fn(async () => ({ code: "c".repeat(32) })) }));
 vi.mock("../viewingFlag", () => ({ isViewing: () => false }));
 vi.mock("./wakeLock", () => ({ useScreenAwake: () => {} }));
-vi.mock("./store", () => ({ resumeGame: vi.fn(), useTable: () => ({ game: fixtures.localGame, state: null }) }));
+vi.mock("./store", () => ({ resumeGame: vi.fn(), getGame: () => fixtures.localGame, useTable: () => ({ game: fixtures.localGame, state: null }) }));
 vi.mock("./share", () => ({
   guestWsUrl: (id: string, key: string) => `wss://relay/table/${id}/ws?role=guest&key=${key}`,
   joinFragment: (key: string, relay: string) => `#k=${key}${relay === "edge" ? "&r=cf" : ""}`,
@@ -123,6 +123,17 @@ describe("keeping a shared game on this device", () => {
     Socket.sockets[0]!.receive(moved(NEW_KEY));
     expect(store.resumeGame).toHaveBeenCalledWith(setup, log);
     expect(share.startHosting).toHaveBeenCalledWith("current");
+    expect(where).toBe("/table/play");
+  });
+
+  it("still keeps the game when its yes comes after this device stopped waiting", async () => {
+    const store = await import("./store");
+    await open();
+    Socket.sockets[0]!.connect({ type: "state", setup, log });
+    await act(async () => button("Keep the game on this device")!.click());
+    act(() => button("Stop asking")!.click());
+    Socket.sockets[0]!.receive(moved(NEW_KEY));
+    expect(store.resumeGame).toHaveBeenCalledWith(setup, log);
     expect(where).toBe("/table/play");
   });
 

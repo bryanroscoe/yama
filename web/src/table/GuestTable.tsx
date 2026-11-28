@@ -9,7 +9,7 @@ import { Button, ButtonLink, ErrorText, Pips } from "../components/ui";
 import { clearMovedTo, guestWsUrl, joinFragment, joinLink, roomToKeep, startHosting, type HandOverAsk } from "./share";
 import { api } from "../api";
 import { isViewing } from "../viewingFlag";
-import { resumeGame, useTable } from "./store";
+import { getGame, resumeGame, useTable } from "./store";
 import type { LayoutKey } from "./layouts";
 import { useMe } from "../auth";
 import { forgetTable, rememberTable } from "./following";
@@ -36,8 +36,8 @@ export function GuestTable() {
   return <GuestGame key={`${gameId}${hash}`} gameId={gameId} />;
 }
 
-/** How long a phone waits for the host's yes before it stops asking. */
-const ASK_FOR_MS = 2 * 60 * 1000;
+/** How long a phone waits for the host's yes before it stops asking: as long as Yama keeps the ask. */
+const ASK_FOR_MS = 5 * 60 * 1000;
 
 function GuestGame({ gameId }: { gameId: string }) {
   const user = useMe().data?.id ?? null;
@@ -57,8 +57,6 @@ function GuestGame({ gameId }: { gameId: string }) {
   const navigate = useNavigate();
   /** This device asked to keep the game: the room it will host, once the host says yes. */
   const [asking, setAsking] = useState<HandOverAsk | null>(null);
-  const askingRef = useRef<HandOverAsk | null>(null);
-  askingRef.current = asking;
   const [askError, setAskError] = useState<unknown>(null);
   // A device the game was just handed from lands here: it has nowhere else to be sent.
   useEffect(() => clearMovedTo(), []);
@@ -109,7 +107,9 @@ function GuestGame({ gameId }: { gameId: string }) {
           // The host handed the game to a device at the table. The same game, the same seat: follow
           // it to that device's room, or, if this is the device that asked, keep it here now.
           const next = msg.next as { gameId: string; key: string; relay?: string };
-          if (askingRef.current?.key === next.key && msg.setup?.id === gameId && Array.isArray(msg.log)) {
+          // This device's room for the game is always the same one (its own secret), so it knows
+          // the game is coming here even if it stopped waiting or reloaded since it asked.
+          if (user && !getGame() && next.key === roomToKeep(gameId).key && msg.setup?.id === gameId && Array.isArray(msg.log)) {
             closed = true;
             ws.close();
             forgetTable(user, gameId);

@@ -181,7 +181,7 @@ describe("shared table lifecycle", () => {
   it("hands the game to the device that asked, once its holder says yes, and every phone moves with it", async () => {
     const { api } = await import("../api");
     const store = await import("./store");
-    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam", yours: false } : {}));
+    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam" } : {}));
     share.startHosting("current");
     const ws = Socket.sockets[0]!;
     ws.onopen?.();
@@ -203,7 +203,7 @@ describe("shared table lifecycle", () => {
     const { api } = await import("../api");
     const store = await import("./store");
     const { ask } = await import("../components/confirm");
-    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam", yours: false } : {}));
+    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam" } : {}));
     vi.mocked(ask).mockResolvedValueOnce(false);
     share.startHosting("current");
     const ws = Socket.sockets[0]!;
@@ -226,7 +226,7 @@ describe("shared table lifecycle", () => {
     const { api } = await import("../api");
     const store = await import("./store");
     const { tell } = await import("../components/confirm");
-    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam", yours: false } : {}));
+    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam" } : {}));
     vi.mocked(store.sealForHandOver).mockResolvedValueOnce(null);
     share.startHosting("current");
     const ws = Socket.sockets[0]!;
@@ -237,5 +237,36 @@ describe("shared table lifecycle", () => {
     expect(store.letGo).not.toHaveBeenCalled();
     expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/hand-over"))).toBe(false);
     expect(share.roomToKeep("other")).toMatchObject({ relay: "cf" });
+  });
+  it("holds taps that arrive while it's handing over, and records them if the game stays", async () => {
+    const { api } = await import("../api");
+    const store = await import("./store");
+    let seal!: (g: LocalGame | null) => void;
+    vi.mocked(store.sealForHandOver).mockImplementationOnce(() => new Promise((resolve) => { seal = resolve; }));
+    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam" } : {}));
+    share.startHosting("current");
+    const ws = Socket.sockets[0]!;
+    ws.onopen?.();
+    askFrom(ws, { type: "hand_over", code, key: newKey, relay: "cf" });
+    await vi.waitFor(() => expect(seal).toBeTypeOf("function"));
+    askFrom(ws, { type: "life", seat: 0, delta: -1 });
+    expect(store.dispatch).not.toHaveBeenCalled();
+    seal(null);
+    await vi.waitFor(() => expect(store.releaseHandOver).toHaveBeenCalled());
+    expect(store.dispatch).toHaveBeenCalledWith({ type: "life", seat: 0, delta: -1 });
+  });
+  it("won't hand over while the table's connection is down: nobody would hear where it went", async () => {
+    const { api } = await import("../api");
+    const store = await import("./store");
+    const { tell } = await import("../components/confirm");
+    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam" } : {}));
+    share.startHosting("current");
+    const ws = Socket.sockets[0]!;
+    ws.onopen?.();
+    askFrom(ws, { type: "hand_over", code, key: newKey, relay: "cf" });
+    ws.readyState = 0; // Dropped while the question was on screen.
+    await vi.waitFor(() => expect(tell).toHaveBeenCalled());
+    expect(store.sealForHandOver).not.toHaveBeenCalled();
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/hand-over"))).toBe(false);
   });
 });

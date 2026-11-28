@@ -16,7 +16,8 @@
 //!   the group's game history and stats still add up.
 //! - A game it logged stays when another account sat in it or it belongs to a playgroup that
 //!   lives on; the game passes to that other account (else the group's owner). Other games it
-//!   logged are deleted. A game handed to its device at a table goes back to whoever started it.
+//!   logged are deleted; one handed to another account's device at a table passes to that account
+//!   first. A game handed to its own device at a table goes back to whoever started it.
 //! - In every game that stays, its seat loses the account and its name ("Former player", or
 //!   "Former member" for a member seat), the history's "player" events on its seats lose their tie
 //!   to it and every name it went by there, and seats lose links to its deck versions (the
@@ -413,11 +414,12 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
     sqlx::query("UPDATE games SET kept_by = NULL WHERE kept_by = ?").bind(id).execute(&mut **tx).await?;
 
     // ── games it logged ────────────────────────────────────────────────────
-    // Kept for others: another account sat in it (directly or as a member), or it belongs to a
-    // playgroup that lives on. It passes to that account, else to the group's owner.
-    let logged: Vec<(String, Option<String>)> =
-        sqlx::query_as("SELECT id, playgroup_id FROM games WHERE created_by = ?").bind(id).fetch_all(&mut **tx).await?;
-    for (game, playgroup) in logged {
+    // Kept for others: another account's device keeps it (handed over at the table), another
+    // account sat in it (directly or as a member), or it belongs to a playgroup that lives on.
+    // It passes to that account, else to the group's owner.
+    let logged: Vec<(String, Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT id, playgroup_id, kept_by FROM games WHERE created_by = ?").bind(id).fetch_all(&mut **tx).await?;
+    for (game, playgroup, keeper) in logged {
         let other_seat: Option<String> = sqlx::query_scalar(
             "SELECT COALESCE(s.user_id, m.user_id) FROM game_seats s LEFT JOIN playgroup_members m ON m.id = s.member_id
               WHERE s.game_id = ?1 AND COALESCE(s.user_id, m.user_id) IS NOT NULL AND COALESCE(s.user_id, m.user_id) != ?2
@@ -435,7 +437,8 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
                 .await?,
             None => None,
         };
-        match other_seat.or(group_owner) {
+        // A keeper's next save would otherwise bring a deleted game back as its own.
+        match keeper.or(other_seat).or(group_owner) {
             Some(heir) => {
                 // An heir whose own device keeps it now simply writes it as its owner.
                 sqlx::query("UPDATE games SET created_by = ?1, kept_by = CASE WHEN kept_by = ?1 THEN NULL ELSE kept_by END WHERE id = ?2")

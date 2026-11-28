@@ -1206,6 +1206,17 @@ pub(crate) async fn game_detail(pool: &SqlitePool, user_id: &str, id: &str) -> A
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {
     let mut tx = st.pool.begin().await?;
+    // A game handed to someone else's device is remembered as deleted for that account too, or
+    // its next save would bring the game back as the keeper's own.
+    let keeper: Option<String> = sqlx::query_scalar("SELECT kept_by FROM games WHERE id = ? AND created_by = ? AND mode = 'in_person'")
+        .bind(&id)
+        .bind(&user.id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+    if let Some(k) = &keeper {
+        sqlx::query("INSERT OR IGNORE INTO deleted_games (id, deleted_by, deleted_at) VALUES (?, ?, ?)").bind(&id).bind(k).bind(now()).execute(&mut *tx).await?;
+    }
     let n = sqlx::query("DELETE FROM games WHERE id = ? AND created_by = ? AND mode = 'in_person'")
         .bind(&id)
         .bind(&user.id)

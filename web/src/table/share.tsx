@@ -200,8 +200,12 @@ function open(gameId: string, attempt = 0) {
       const msg = JSON.parse(m.data) as { type: string; event?: TableEvent };
       const asked = msg.type === "event" ? handOverAsk(msg.event) : null;
       if (asked) void considerHandOver(gameId, asked);
-      // While the game is being handed over, taps wait for the device that will keep it.
-      else if (msg.type === "event" && msg.event && GUEST_EVENTS.has(msg.event.type) && !status.handingOver) dispatch(msg.event);
+      else if (msg.type === "event" && msg.event && GUEST_EVENTS.has(msg.event.type)) {
+        // While the game is being handed over, taps wait: recorded here if it stays, and if it
+        // goes, the device that keeps it carries on from what Yama has, without them.
+        if (status.handingOver) held.push(msg.event);
+        else dispatch(msg.event);
+      }
       // The Cloudflare relay slept and lost its newest copy, and someone joined.
       else if (msg.type === "resend") {
         lastSent = null;
@@ -253,6 +257,8 @@ function handOverAsk(event: unknown): HandOverAsk | null {
 
 /** An ask being considered (one at a time; another phone asking meanwhile asks again later). */
 let considering: string | null = null;
+/** Guests' taps that arrived while the game was being handed over. */
+let held: TableEvent[] = [];
 
 /**
  * Someone at the table asked to keep the game on their device. Yama says whose account asked;
@@ -264,13 +270,13 @@ async function considerHandOver(gameId: string, req: HandOverAsk) {
   considering = req.code;
   try {
     // A stale ask (expired, or for a game this account no longer keeps) needs no word.
-    const who = await api<{ name: string; yours: boolean }>(`/api/table/${gameId}/claim/${req.code}`).catch((e) => {
+    const who = await api<{ name: string }>(`/api/table/${gameId}/claim/${req.code}`).catch((e) => {
       if (e instanceof ApiError && e.status === 404) return null;
       throw e;
     });
     if (!who || status.gameId !== gameId) return;
     const yes = await ask({
-      title: `Hand the game to ${who.yours ? "your other device" : `${who.name}'s device`}?`,
+      title: `Hand the game to ${who.name}'s device?`,
       body: "It keeps the game from now on and saves it to Yama, and every device following moves to it, this one too. It stays your game, in your history.",
       confirm: "Hand it over",
     });
@@ -284,10 +290,16 @@ async function considerHandOver(gameId: string, req: HandOverAsk) {
 
 async function handOver(gameId: string, req: HandOverAsk) {
   setStatus({ handingOver: true });
+  held = [];
   let handed = false;
+  // Only while the table's relay can hear it: the phones following must be told where it went.
+  const reachable = () => socket?.readyState === WebSocket.OPEN && status.gameId === gameId;
+  const offline = "This device lost the table's connection. Try again once it says Live.";
   try {
+    if (!reachable()) throw new Error(offline);
     const sealed = await sealForHandOver(gameId);
     if (!sealed) throw new Error("This device couldn't save the game to Yama first. Try again once it's online.");
+    if (!reachable()) throw new Error(offline);
     await api(`/api/table/${gameId}/hand-over`, { method: "POST", json: { code: req.code } });
     handed = true;
     // The last word in this room: where the game went. Stored by the relay at once (a `next`
@@ -306,9 +318,12 @@ async function handOver(gameId: string, req: HandOverAsk) {
     letGo(gameId);
     reset();
   } finally {
+    const waiting = held;
+    held = [];
     if (!handed) {
       releaseHandOver(gameId);
       setStatus({ handingOver: false });
+      for (const e of waiting) dispatch(e);
     }
   }
 }

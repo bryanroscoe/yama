@@ -350,7 +350,7 @@ async fn claimant(State(st): State<AppState>, CurrentUser(user): CurrentUser, Pa
         .fetch_optional(&st.pool)
         .await?
         .ok_or(AppError::NotFound("claim"))?;
-    Ok(Json(serde_json::json!({ "name": name, "yours": asker == user.id })))
+    Ok(Json(serde_json::json!({ "name": name })))
 }
 
 #[derive(Deserialize)]
@@ -886,6 +886,14 @@ mod tests {
         assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&ht), Some(json!([life(4)]))).await.0, StatusCode::OK);
         assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&st_), Some(json!([life(5)]))).await.0, StatusCode::NOT_FOUND);
         assert_eq!(send(&app, Method::POST, &format!("{route}/take-back"), Some(&ht), None).await.0, StatusCode::OK, "taking back a game you keep changes nothing");
+
+        // Handed once more, then deleted by its creator: Sam's next save can't bring it back as Sam's.
+        let (_, last) = send(&app, Method::POST, &format!("{route}/claim"), Some(&st_), None).await;
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": last["code"] }))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{id}"), Some(&ht), None).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, "/api/games", Some(&st_), Some(game(json!([life(1)])))).await.0, StatusCode::GONE);
+        let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(left, 0);
     }
 
     fn is_token(code: &str) -> bool {

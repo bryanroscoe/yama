@@ -173,8 +173,9 @@ export function GameDetailPage() {
   const decks = useQuery({ queryKey: ["decks"], queryFn: ({ signal }) => api<DeckSummary[]>("/api/decks", { signal }), enabled: game.data?.mode === "in_person" });
 
   const carryOn = useMutation({
-    mutationFn: async () => {
-      const { setup, log } = setupFromServer(g!);
+    // From the game as just read again (taking it back), else as this page shows it.
+    mutationFn: async (fresh?: GameDetail) => {
+      const { setup, log } = setupFromServer(fresh ?? g!);
       // Art and colors for each seat, looked up again (the server keeps only the names).
       const players = await Promise.all(
         setup.players.map(async (p) => {
@@ -200,12 +201,12 @@ export function GameDetailPage() {
         body: `${g?.kept_by_name ?? "The other"}'s device stops saving it to Yama, and this one carries on from the last change Yama has. Only if that device is done with it.`,
         confirm: "Take it back",
       });
-      if (!yes) return false;
+      if (!yes) return null;
       await api(`/api/table/${id}/take-back`, { method: "POST" });
-      await game.refetch();
-      return true;
+      // Carry on from everything the other device saved, not from what this page loaded.
+      return (await game.refetch({ throwOnError: true })).data ?? null;
     },
-    onSuccess: (taken) => taken && carryOn.mutate(),
+    onSuccess: (fresh) => fresh && carryOn.mutate(fresh),
   });
 
   const qc = useQueryClient();
@@ -303,7 +304,7 @@ export function GameDetailPage() {
                 {live.data?.hosting && (
                   <ButtonLink variant="primary" to={`/table/join/${g.id}${live.data.key ? joinFragment(live.data.key, live.data.relay ?? "edge") : ""}`}>Follow it live</ButtonLink>
                 )}
-                <Button className={live.data?.hosting ? "" : "primary"} disabled={busyElsewhere || carryOn.isPending} onClick={() => carryOn.mutate()}>
+                <Button className={live.data?.hosting ? "" : "primary"} disabled={busyElsewhere || carryOn.isPending} onClick={() => carryOn.mutate(undefined)}>
                   {carryOn.isPending ? "Opening…" : "Continue on this device"}
                 </Button>
               </div>

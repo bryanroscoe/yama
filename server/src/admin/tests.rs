@@ -614,6 +614,11 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     g7_cols.push(("kept_by", t(&v)));
     let g7 = fill(&pool, "games", &g7_cols).await;
     fill(&pool, "game_seats", &[("game_id", t(&g7)), ("seat", V::I(0)), ("user_id", t(&b))]).await;
+    // g8: the victim's table game, nobody else seated, handed to the bystander's device (passes to the bystander).
+    let mut g8_cols = game(&v, "in_person", "in_progress");
+    g8_cols.push(("kept_by", t(&b)));
+    let g8 = fill(&pool, "games", &g8_cols).await;
+    fill(&pool, "game_seats", &[("game_id", t(&g8)), ("seat", V::I(0)), ("guest_name", t("Alex"))]).await;
     // The Mythic Tools bridge: the victim's links and its Mythic notes go, also on games that stay
     // (its own g1, the bystander's g3); the bystander's own note and link on g1 stay.
     fill(&pool, "mythic_game_notes", &[("owner_id", t(&v)), ("game_id", t(&g1))]).await;
@@ -774,6 +779,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
     assert_eq!(scalar(&pool, "SELECT status FROM games WHERE id = ?", &g6).await.as_deref(), Some("finished"));
     assert_eq!(count(&pool, "online_games", "game_id", &g6).await, 0);
     assert_eq!(scalar(&pool, "SELECT COALESCE(kept_by, created_by) FROM games WHERE id = ?", &g7).await, Some(b.clone()), "the handed game goes back to its creator");
+    assert_eq!(scalar(&pool, "SELECT created_by FROM games WHERE id = ?", &g8).await, Some(b.clone()), "a game the bystander's device keeps passes to it");
+    assert_eq!(scalar(&pool, "SELECT kept_by FROM games WHERE id = ?", &g8).await, None);
     assert_eq!(count(&pool, "decks", "id", &b_deck).await, 1);
     assert_eq!(count(&pool, "scan_samples", "id", &b_sample).await, 1);
     assert_eq!(count(&pool, "scan_diagnostics", "id", &v_diag).await, 0);
@@ -793,6 +800,8 @@ async fn deleting_an_account_leaves_nothing_of_it() {
             ("online_games", "host_id") | ("view_sessions", "admin_id") | ("view_sessions", "target_id") => before - 1,
             // The takedown the bystander made of the victim's deck goes with that deck.
             ("deck_takedowns", "admin_id") => before - 1,
+            // The game the bystander's device kept is the bystander's own now (g8): no keeper.
+            ("games", "kept_by") => before - 1,
             _ => before,
         };
         assert!(after >= expected, "the bystander lost {table}.{column} rows ({before} before, {after} after)");
@@ -800,7 +809,7 @@ async fn deleting_an_account_leaves_nothing_of_it() {
 
     assert_eq!(report.playgroups_passed_on, 1);
     assert_eq!(report.playgroups_deleted, 1);
-    assert_eq!(report.games_kept, 2, "{report:?}");
+    assert_eq!(report.games_kept, 3, "{report:?}");
     assert_eq!(report.games_deleted, 2, "{report:?}");
     assert_eq!(report.online_games_removed, 2, "{report:?}");
     assert!(report.rows_deleted >= 25, "{report:?}");
