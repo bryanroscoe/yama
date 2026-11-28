@@ -18,7 +18,14 @@ vi.stubGlobal("window", {
   setInterval: (...args: Parameters<typeof setInterval>) => setInterval(...args),
   clearInterval: (id: number) => clearInterval(id),
 });
-vi.mock("../api", () => ({ api: vi.fn(async () => ({})), API_BASE: "", publicOrigin: () => "https://yama.ing" }));
+vi.mock("../api", () => ({
+  api: vi.fn(async () => ({})),
+  API_BASE: "",
+  publicOrigin: () => "https://yama.ing",
+  ApiError: class ApiError extends Error { constructor(public status: number, message: string) { super(message); } },
+  errorMessage: (e: unknown) => (e instanceof Error ? e.message : String(e)),
+}));
+vi.mock("../components/confirm", () => ({ ask: vi.fn(async () => true), tell: vi.fn(async () => {}) }));
 vi.mock("./store", () => ({
   getGame: () => game,
   isPosted: () => true,
@@ -30,6 +37,9 @@ vi.mock("./store", () => ({
   sync: vi.fn(async () => {}),
   subscribeTable: (f: () => void) => { changes.add(f); return () => { changes.delete(f); }; },
   subscribeTableEnd: (f: (g: LocalGame) => void) => { ends.add(f); return () => { ends.delete(f); }; },
+  sealForHandOver: vi.fn(async () => game),
+  releaseHandOver: vi.fn(),
+  letGo: vi.fn(() => { game = null; for (const f of changes) f(); }),
 }));
 class Socket {
   static OPEN = 1;
@@ -37,13 +47,17 @@ class Socket {
   readyState = 1;
   onopen?: () => void;
   onclose?: (e: { code: number }) => void;
+  onmessage?: (m: { data: string }) => void;
   messages: string[] = [];
   constructor(public url: string) { Socket.sockets.push(this); }
   send(msg: string) { this.messages.push(msg); }
   close() { this.readyState = 3; this.onclose?.({ code: 1000 }); }
 }
 vi.stubGlobal("WebSocket", Socket);
-const setup = { id: "current", startedAt: "2026-11-02T19:00:00Z", format: "commander" as const, startingLife: 40, players: [{ seat: 0, name: "Host", colorIdentity: "" }] };
+const setup = { id: "current", startedAt: "2026-11-02T19:00:00Z", format: "commander" as const, startingLife: 40, players: [{ seat: 0, name: "Host", colorIdentity: "", userId: "host" }] };
+const code = "c".repeat(32);
+const newKey = "d".repeat(32);
+const askFrom = (ws: Socket, event: Record<string, unknown>) => ws.onmessage?.({ data: JSON.stringify({ type: "event", event }) });
 let share: typeof import("./share");
 describe("shared table lifecycle", () => {
   beforeEach(async () => {
@@ -163,5 +177,65 @@ describe("shared table lifecycle", () => {
     game = null;
     for (const f of changes) f();
     expect(ws.messages.map((m) => JSON.parse(m).ended)).not.toContain(true);
+  });
+  it("hands the game to the device that asked, once its holder says yes, and every phone moves with it", async () => {
+    const { api } = await import("../api");
+    const store = await import("./store");
+    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam", yours: false } : {}));
+    share.startHosting("current");
+    const ws = Socket.sockets[0]!;
+    ws.onopen?.();
+    askFrom(ws, { type: "hand_over", code, key: newKey, relay: "cf" });
+    await vi.waitFor(() => expect(store.letGo).toHaveBeenCalledWith("current"));
+    const calls = vi.mocked(api).mock.calls.map(([path, init]) => `${init?.method ?? "GET"} ${path}`);
+    expect(calls).toContain(`GET /api/table/current/claim/${code}`);
+    expect(calls).toContain("POST /api/table/current/hand-over");
+    expect(vi.mocked(api).mock.calls.find(([path]) => path.endsWith("/hand-over"))?.[1]).toMatchObject({ json: { code } });
+    // The old room's last word sends every phone (asleep ones too, via the relay's copy) to the new one.
+    expect(JSON.parse(ws.messages.at(-1)!)).toMatchObject({ type: "state", moved: true, next: { gameId: "current", key: newKey, relay: "cf" } });
+    expect(ws.readyState).toBe(3);
+    expect(items.get("yama.guest.current")).toBe("0"); // This device follows from its own seat.
+    expect(items.has("yama.table.hosting.host")).toBe(false);
+    const { ask } = await import("../components/confirm");
+    expect(vi.mocked(ask).mock.calls[0]![0].title).toBe("Hand the game to Sam's device?");
+  });
+  it("keeps the game when its holder says no, and ignores asks that aren't one", async () => {
+    const { api } = await import("../api");
+    const store = await import("./store");
+    const { ask } = await import("../components/confirm");
+    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam", yours: false } : {}));
+    vi.mocked(ask).mockResolvedValueOnce(false);
+    share.startHosting("current");
+    const ws = Socket.sockets[0]!;
+    ws.onopen?.();
+    askFrom(ws, { type: "hand_over", code: "not a code", key: newKey, relay: "cf" });
+    askFrom(ws, { type: "hand_over", code, key: "short", relay: "cf" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.includes("/claim/"))).toBe(false);
+    askFrom(ws, { type: "hand_over", code, key: newKey, relay: "cf" });
+    await vi.waitFor(() => expect(ask).toHaveBeenCalled());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(store.sealForHandOver).not.toHaveBeenCalled();
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/hand-over"))).toBe(false);
+    expect(ws.readyState).toBe(1);
+    // A tap still goes to the game; a hand-over ask is never one.
+    askFrom(ws, { type: "life", seat: 0, delta: -1 });
+    expect(store.dispatch).toHaveBeenCalledTimes(1);
+  });
+  it("records again and says so when the game couldn't reach Yama first", async () => {
+    const { api } = await import("../api");
+    const store = await import("./store");
+    const { tell } = await import("../components/confirm");
+    vi.mocked(api).mockImplementation(async (path: string) => (path.includes("/claim/") ? { name: "Sam", yours: false } : {}));
+    vi.mocked(store.sealForHandOver).mockResolvedValueOnce(null);
+    share.startHosting("current");
+    const ws = Socket.sockets[0]!;
+    ws.onopen?.();
+    askFrom(ws, { type: "hand_over", code, key: newKey, relay: "cf" });
+    await vi.waitFor(() => expect(tell).toHaveBeenCalled());
+    expect(store.releaseHandOver).toHaveBeenCalledWith("current");
+    expect(store.letGo).not.toHaveBeenCalled();
+    expect(vi.mocked(api).mock.calls.some(([path]) => path.endsWith("/hand-over"))).toBe(false);
+    expect(share.roomToKeep("other")).toMatchObject({ relay: "cf" });
   });
 });

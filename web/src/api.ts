@@ -905,6 +905,10 @@ export interface MatchGame {
 export interface GameDetail extends GameRow {
   events: { seq: number; actor_seat: number | null; kind: string; payload: unknown; created_at: string | null }[];
   can_continue: boolean;
+  /** Still going and handed to another account's device at the table: whose. */
+  kept_by_name?: string | null;
+  /** This account started it and handed it to another device: it may take it back. */
+  can_take_back?: boolean;
   /** This account recorded this table game, so it may delete it. Absent from older servers. */
   can_delete?: boolean;
   /** Logged after it was played, by this account: Log a game can open it again. */

@@ -295,7 +295,10 @@ sequenceDiagram
 
 The host phone holds the game; the relay only forwards messages and keeps the newest snapshot
 for late joiners. It admits as host only whoever holds the secret behind the share key, so it
-needs no account data to decide who may host. Rate limits in front of and inside the Worker keep
+needs no account data to decide who may host. The host phone can hand the game to a signed-in
+phone following it (27 November 2026, [below](#handing-the-shared-table-to-another-phone-27-november-2026)):
+that phone opens a room of its own, Yama records its account as the game's keeper, and the old
+room's last snapshot sends everyone there. Rate limits in front of and inside the Worker keep
 it within Cloudflare's free plan. Details: [relay/README.md](relay/README.md) and
 [section 8](#8-table-mode-life-counter).
 
@@ -441,7 +444,7 @@ section 4 is the first sketch; the current system is [above](#the-system-at-a-gl
 - **Lab and evidence:** [Simulation lab (2026-10-19)](#simulation-lab-2026-10-19), [Forge as a second Lab engine (2026-10-22)](#forge-as-a-second-lab-engine-2026-10-22), [Lab time-outs (2026-10-23)](#lab-time-outs-2026-10-23), [Referee: phase checked against Forge (2026-10-24)](#referee-phase-checked-against-forge-2026-10-24), [Shared-field tournaments (2026-10-26)](#shared-field-tournaments-2026-10-26), [Lab execution targets (2026-10-27)](#lab-execution-targets-2026-10-27), [Phase retry-tail progress (2026-10-28)](#phase-retry-tail-progress-2026-10-28), [Lab: off the write lock, and its cost (2026-11-02)](#lab-off-the-write-lock-and-its-cost-2026-11-02), [Historical evidence datasets (2026-10-28)](#historical-evidence-datasets-2026-10-28), [Precon evidence from datasets (2026-10-29)](#precon-evidence-from-datasets-2026-10-29), [Public precon reference (2026-10-27)](#public-precon-reference-2026-10-27), [Precon upgradeability (2026-10-27)](#precon-upgradeability-2026-10-27), [Public commander ranking (2026-11-01)](#public-commander-ranking-2026-11-01), [Precon power comparison (2026-11-09)](#precon-power-comparison-2026-11-09), [Star Trek stock catalog (2026-11-09)](#star-trek-stock-catalog-2026-11-09).
 - **Shopping:** [Live store stock (13 November 2026)](#live-store-stock-13-november-2026).
 - **The Android app:** [The Android app, sideloaded (13 November 2026)](#the-android-app-sideloaded-13-november-2026), [Which build each device runs (15 November 2026)](#which-build-each-device-runs-15-november-2026).
-- **Game night:** [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
+- **Game night:** [Handing the shared table to another phone (27 November 2026)](#handing-the-shared-table-to-another-phone-27-november-2026), [Table and playgroup stats (2026-10-19)](#table-and-playgroup-stats-2026-10-19).
 - **The scanner:** [A training corpus from every card the scanner names (22 November 2026)](#a-training-corpus-from-every-card-the-scanner-names-22-november-2026), [Scan photos shared with the developer (15 November 2026)](#scan-photos-shared-with-the-developer-15-november-2026), [The scanner's own art supplement (15 November 2026)](#the-scanners-own-art-supplement-15-november-2026), [Yama's own query embedder for the scanner (18 November 2026)](#yamas-own-query-embedder-for-the-scanner-18-november-2026), [Scanner models you can switch (20 November 2026)](#scanner-models-you-can-switch-20-november-2026), [The scanner's printing look (20 November 2026)](#the-scanners-printing-look-20-november-2026), [The printing look's vectors from the server (21 November 2026)](#the-printing-looks-vectors-from-the-server-21-november-2026), [Scanner diagnostics (15 November 2026)](#scanner-diagnostics-15-november-2026), [Scanner timings and full-resolution crops (20 November 2026)](#scanner-timings-and-full-resolution-crops-20-november-2026), [The scanner speed test (21 November 2026)](#the-scanner-speed-test-21-november-2026), [A scanner's row before its printing, and a tie by price (22 November 2026)](#a-scanners-row-before-its-printing-and-a-tie-by-price-22-november-2026), [The scanner's faster models as the defaults, and the live finder's speed (22 November 2026)](#the-scanners-faster-models-as-the-defaults-and-the-live-finders-speed-22-november-2026).
 - **Cards, collection and prices:** [Mana symbols (2026-11-12)](#mana-symbols-2026-11-12), [Release calendar and What's new (2026-10-19)](#release-calendar-and-whats-new-2026-10-19), [A deck's cards in the collection, and Mythic re-imports (2026-10-23)](#a-decks-cards-in-the-collection-and-mythic-re-imports-2026-10-23), [Deck market values (2026-10-27)](#deck-market-values-2026-10-27), [Scan this deck (2026-10-29)](#scan-this-deck-2026-10-29), [Mythic Tools bridge (2026-10-31, proposal)](#mythic-tools-bridge-2026-10-31-proposal), [Store trips (2026-11-01)](#store-trips-2026-11-01), [Deleting collection containers (2026-11-02)](#deleting-collection-containers-2026-11-02), [Sell lists for store buylists (2026-11-02)](#sell-lists-for-store-buylists-2026-11-02), [Local buylist offers (2026-11-02)](#local-buylist-offers-2026-11-02), [Price history (2026-11-02)](#price-history-2026-11-02), [Recording printed copies in a deck box (2026-11-02)](#recording-printed-copies-in-a-deck-box-2026-11-02), [Sections in boxes, and scanning a box (16 November 2026)](#sections-in-boxes-and-scanning-a-box-16-november-2026).
 - **Decks, plans and sharing:** [Where a plan came from (21 November 2026)](#where-a-plan-came-from-21-november-2026), [Plans don't wait for approval (20 November 2026)](#plans-dont-wait-for-approval-20-november-2026), [Swappable spares in the deck box (15 November 2026)](#swappable-spares-in-the-deck-box-15-november-2026), [Brackets, deck stats and exports (2026-10-19)](#brackets-deck-stats-and-exports-2026-10-19), [Deck import (2026-10-22)](#deck-import-2026-10-22), [Sharing and deck configurations (2026-10-28)](#sharing-and-deck-configurations-2026-10-28), [Review, installed decks and the Lab tab (2026-10-28)](#review-installed-decks-and-the-lab-tab-2026-10-28), [Check this deck (2026-11-01)](#check-this-deck-2026-11-01), [Deck configurations and quieter editing (2026-11-03)](#deck-configurations-and-quieter-editing-2026-11-03), [One plan page (2026-11-04)](#one-plan-page-2026-11-04), [Printing with MakePlayingCards (2026-11-05)](#printing-with-makeplayingcards-2026-11-05), [Plans: one plan per deck (2026-11-06)](#plans-one-plan-per-deck-2026-11-06), [Site design pass (2026-11-08)](#site-design-pass-2026-11-08), [Public by default and the navigation (2026-11-12)](#public-by-default-and-the-navigation-2026-11-12), [Check a deck without an account (2026-11-12)](#check-a-deck-without-an-account-2026-11-12).
@@ -458,6 +461,44 @@ A free Magic app, on Android phones and in the browser (iOS shelved: no Apple ac
 Status: proposal written 2026-10-17; building started 2026-10-18. See [docs/features.md](docs/features.md) for what works today. Repo and app-store facts below were checked on 2026-10-17.
 
 **Changed 2026-10-18:** the database is SQLite (WAL mode), not Postgres. At friend-group scale one file next to one server process is simpler to run and back up (e.g. Litestream to object storage), and this machine has no Docker. The schema avoids Postgres-only features, so moving later is a migration, not a rewrite.
+
+## Handing the shared table to another phone (27 November 2026)
+
+Bryan: "Make a thing to migrate the host of a match." The host phone of a shared life-counter
+game was the only device that could keep it: if it was leaving or running low, the game went
+with it, and "Continue on this device" only worked for the creator's own devices, stranding the
+phones following it.
+
+**How.** A signed-in phone following the table asks Yama for a claim code (`POST
+/api/table/:id/claim`, held in memory for five minutes) and sends it to the host phone through
+the relay, inside an ordinary guest event (`{"type":"hand_over", code, key, relay}`), with the
+share key of the room it will host, derived from a secret of its own as for any game. The relay
+forwards it to the host only; the host phone never dispatches it as a tap. The host phone asks
+Yama whose account the code belongs to (`GET /claim/:code`, only for the account keeping the
+game) and asks its holder. On yes it stops recording, uploads every event it has (the tap still
+settling too), and calls `POST /hand-over`, which sets `games.kept_by` to the asking account
+(NULL when that is the creator) only while the caller still writes the game. Then it sends the
+old room one last snapshot with `next: {gameId, key, relay}` and `moved: true`. The Cloudflare
+relay stores a snapshot with `next` at once, so the relay needed no change and a phone asleep
+through the hand-over follows when it reconnects. The asking phone recognises its own key,
+resumes the game from that snapshot (already all on Yama) and starts hosting; every other phone
+follows the new key in the same seat; the old host lets the game go without finishing or
+deleting it and follows too.
+
+**Who writes the record.** `COALESCE(kept_by, created_by)` writes an in-person game (`games::writer`):
+events, saves and the finish, and shares it on either relay. The keeper's saves are checked as the
+creator's (seats, lent decks and playgroup resolve as they did when the game started), so the
+game reads exactly as if the creator's phone had kept it. The creator's own stale copies are
+refused while someone else keeps it. The creator still owns it: only they delete or edit it, and
+they may take it back (`POST /take-back`) for a phone that died with it. The keeper may see the
+game's page while it keeps it (it already had the whole game on its screen). Deleting the keeper's
+account gives the game back to its creator; an heir that keeps the game simply becomes its writer.
+
+**Left out.** A signed-out phone can't take a game (there would be no account to upload it), and
+nor can a host phone that can't reach Yama, since the record must move with the game. A dead
+host phone's game is taken back from Game history by its creator rather than claimed by a guest:
+nobody but the host can vouch for who should have it. A rematch started on the keeping device is
+that device's own game.
 
 ## Phase board release integration (1 November 2026)
 

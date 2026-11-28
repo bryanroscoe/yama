@@ -16,7 +16,7 @@
 //!   the group's game history and stats still add up.
 //! - A game it logged stays when another account sat in it or it belongs to a playgroup that
 //!   lives on; the game passes to that other account (else the group's owner). Other games it
-//!   logged are deleted.
+//!   logged are deleted. A game handed to its device at a table goes back to whoever started it.
 //! - In every game that stays, its seat loses the account and its name ("Former player", or
 //!   "Former member" for a member seat), the history's "player" events on its seats lose their tie
 //!   to it and every name it went by there, and seats lose links to its deck versions (the
@@ -67,6 +67,7 @@ pub const USER_COLUMNS: &[(&str, &str)] = &[
     ("evidence_datasets", "owner_id"),
     ("game_seats", "user_id"),
     ("games", "created_by"),
+    ("games", "kept_by"),
     ("invites", "invited_by"),
     ("item_aliases", "owner_id"),
     ("lab_execution_runs", "owner_id"),
@@ -407,6 +408,10 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
         .execute(&mut **tx)
         .await?;
 
+    // ── games handed to its device at a table ──────────────────────────────
+    // They go back to whoever started them.
+    sqlx::query("UPDATE games SET kept_by = NULL WHERE kept_by = ?").bind(id).execute(&mut **tx).await?;
+
     // ── games it logged ────────────────────────────────────────────────────
     // Kept for others: another account sat in it (directly or as a member), or it belongs to a
     // playgroup that lives on. It passes to that account, else to the group's owner.
@@ -432,7 +437,12 @@ pub async fn delete_rows(tx: &mut Transaction<'_, Sqlite>, id: &str) -> AppResul
         };
         match other_seat.or(group_owner) {
             Some(heir) => {
-                sqlx::query("UPDATE games SET created_by = ? WHERE id = ?").bind(&heir).bind(&game).execute(&mut **tx).await?;
+                // An heir whose own device keeps it now simply writes it as its owner.
+                sqlx::query("UPDATE games SET created_by = ?1, kept_by = CASE WHEN kept_by = ?1 THEN NULL ELSE kept_by END WHERE id = ?2")
+                    .bind(&heir)
+                    .bind(&game)
+                    .execute(&mut **tx)
+                    .await?;
                 r.games_kept += 1;
             }
             None => {

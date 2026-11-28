@@ -158,6 +158,8 @@ export function GameDetailPage() {
   const going = g?.status === "in_progress" && !uploading;
   // Viewing as someone, nothing this device records is theirs to upload.
   const mayContinue = !!g?.can_continue && !uploading && !isViewing();
+  // Handed to someone else's device at the table: its creator may take it back here.
+  const mayTakeBack = !!g?.can_take_back && !uploading && !isViewing();
   const live = useQuery({
     queryKey: ["table-live", id],
     queryFn: ({ signal }) => api<{ hosting: boolean; key?: string; relay?: "edge" | "server" }>(`/api/table/${id}/live`, { signal }),
@@ -190,6 +192,20 @@ export function GameDetailPage() {
       resumeGame({ ...setup, players }, log);
     },
     onSuccess: () => navigate("/table/play"),
+  });
+  const takeBack = useMutation({
+    mutationFn: async () => {
+      const yes = await ask({
+        title: "Take the game back?",
+        body: `${g?.kept_by_name ?? "The other"}'s device stops saving it to Yama, and this one carries on from the last change Yama has. Only if that device is done with it.`,
+        confirm: "Take it back",
+      });
+      if (!yes) return false;
+      await api(`/api/table/${id}/take-back`, { method: "POST" });
+      await game.refetch();
+      return true;
+    },
+    onSuccess: (taken) => taken && carryOn.mutate(),
   });
 
   const qc = useQueryClient();
@@ -299,6 +315,19 @@ export function GameDetailPage() {
                     : "Picks up from the last change Yama saved. If the other device is still running the game, its newest taps may not be here yet."}
               </p>
               <ErrorText error={carryOn.error} />
+            </>
+          ) : g.kept_by_name ? (
+            <>
+              <p className="small dim">{g.kept_by_name}'s device is keeping this game: it was handed over at the table.</p>
+              {mayTakeBack && (
+                <div className="row">
+                  <Button disabled={busyElsewhere || takeBack.isPending || carryOn.isPending} onClick={() => takeBack.mutate()}>
+                    {takeBack.isPending || carryOn.isPending ? "Taking it back…" : "Take it back to this device"}
+                  </Button>
+                </div>
+              )}
+              {mayTakeBack && busyElsewhere && <p className="small dim">This device already has a game going. Finish or discard it first.</p>}
+              <ErrorText error={takeBack.error ?? carryOn.error} />
             </>
           ) : (
             <p className="small dim">Whoever started this game can carry it on from their devices.</p>

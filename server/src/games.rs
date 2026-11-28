@@ -208,6 +208,11 @@ pub(crate) async fn can_see(pool: &SqlitePool, game: &str, user: &str) -> AppRes
     if creator == user {
         return Ok(true);
     }
+    // Kept on this account's device: it was handed the game at the table.
+    let keeps: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM games WHERE id = ? AND kept_by = ?)").bind(game).bind(user).fetch_one(pool).await?;
+    if keeps {
+        return Ok(true);
+    }
     if let Some(g) = group && is_member(pool, &g, user).await? {
         return Ok(true);
     }
@@ -222,17 +227,26 @@ pub(crate) async fn can_see(pool: &SqlitePool, game: &str, user: &str) -> AppRes
 async fn create(State(st): State<AppState>, CurrentUser(user): CurrentUser, Json(g): Json<NewGame>) -> AppResult<Json<serde_json::Value>> {
     // Limits (limits.rs): every save counts toward a flood limit; a game new to Yama counts
     // toward a smaller one. A phone sends its game again with each batch of taps, so only ids
-    // that aren't this account's own games yet are held to the smaller number.
+    // that aren't this account's own games yet (or kept on its device) are held to the smaller number.
     st.limits.game_saves.check_user(&user)?;
-    let known: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM games WHERE id = ? AND created_by = ?)")
+    let held: Option<(String, Option<String>)> = sqlx::query_as("SELECT created_by, kept_by FROM games WHERE id = ? AND mode = 'in_person'")
         .bind(&g.id)
-        .bind(&user.id)
-        .fetch_one(&st.pool)
+        .fetch_optional(&st.pool)
         .await?;
-    if !known {
-        st.limits.game_creates.check_user(&user)?;
-    }
-    Ok(Json(create_game(&st.pool, &user.id, g).await?))
+    let acting = match &held {
+        // Handed to this account's device at the table: it saves the game as its creator would,
+        // so the seats, lent decks and playgroup are checked as they were when it started.
+        Some((creator, Some(keeper))) if *keeper == user.id => creator.clone(),
+        Some((creator, Some(_))) if *creator == user.id => {
+            return Err(AppError::Conflict("This game was handed to another device at the table, which keeps it now. Take it back from the game's page to carry on here.".into()));
+        }
+        Some((creator, None)) if *creator == user.id => user.id.clone(),
+        _ => {
+            st.limits.game_creates.check_user(&user)?;
+            user.id.clone()
+        }
+    };
+    Ok(Json(create_game(&st.pool, &acting, g).await?))
 }
 
 /// A seat as it's stored, after the checks in `resolve_seat`.
@@ -686,11 +700,17 @@ fn is_logged(game: &GameRow, events: &[Event]) -> bool {
 /// Only the phone that created an in-person game writes to it. Online games are written by
 /// the rules engine alone.
 pub(crate) async fn can_write(pool: &SqlitePool, game: &str, user: &str) -> AppResult<bool> {
-    let row: Option<(String, String)> = sqlx::query_as("SELECT created_by, mode FROM games WHERE id = ?")
+    Ok(writer(pool, game).await?.as_deref() == Some(user))
+}
+
+/// Who writes an in-person game's record now: the account whose device it was handed to at the
+/// table (`kept_by`, table_rooms.rs), else the one that started it. None for an online game or
+/// no such game.
+pub(crate) async fn writer(pool: &SqlitePool, game: &str) -> AppResult<Option<String>> {
+    Ok(sqlx::query_scalar("SELECT COALESCE(kept_by, created_by) FROM games WHERE id = ? AND mode = 'in_person'")
         .bind(game)
         .fetch_optional(pool)
-        .await?;
-    Ok(matches!(row, Some((by, mode)) if by == user && mode == "in_person"))
+        .await?)
 }
 
 async fn append_events(
@@ -1060,8 +1080,14 @@ pub(crate) struct GameDetail {
     #[serde(flatten)]
     game: GameRow,
     events: Vec<Event>,
-    /// This account started this in-person game, so it can carry on with it on another device.
+    /// This in-person game is still going and this account writes it (it started it, or it was
+    /// handed to its device at the table), so it can carry on with it on another device.
     can_continue: bool,
+    /// Still going and handed to another account's device at the table: that account's name.
+    kept_by_name: Option<String>,
+    /// This account started the game and handed it to another device: it may take it back
+    /// (`POST /api/table/:id/take-back`).
+    can_take_back: bool,
     /// This account recorded this in-person game, so it may delete it (`DELETE /api/games/:id`).
     can_delete: bool,
     /// A game this account logged after it was played: Log a game can open it again, and saving
@@ -1142,12 +1168,21 @@ pub(crate) async fn game_detail(pool: &SqlitePool, user_id: &str, id: &str) -> A
             created_at: Some(created_at),
         })
         .collect();
-    let mine = can_write(pool, id, user_id).await?;
+    let writes = can_write(pool, id, user_id).await?;
+    let (creator, keeper): (String, Option<String>) = sqlx::query_as("SELECT created_by, kept_by FROM games WHERE id = ?").bind(id).fetch_one(pool).await?;
+    // The game's own account: it deletes and edits it, whoever's device keeps it now.
+    let mine = creator == user_id && game.mode == "in_person";
     let corrected: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM history_correction_targets WHERE game_id = ?)")
         .bind(id)
         .fetch_one(pool)
         .await?;
-    let can_continue = game.status == "in_progress" && mine && !corrected;
+    let can_continue = game.status == "in_progress" && writes && !corrected;
+    let going = game.status == "in_progress" && game.mode == "in_person";
+    let kept_by_name: Option<String> = match keeper.as_deref() {
+        Some(k) if going && k != user_id => sqlx::query_scalar("SELECT display_name FROM users WHERE id = ?").bind(k).fetch_optional(pool).await?,
+        _ => None,
+    };
+    let can_take_back = going && mine && keeper.is_some() && !corrected;
     let can_edit = mine && !corrected && is_logged(&game, &events);
     let mut your_decks = std::collections::BTreeMap::new();
     for s in &game.seats {
@@ -1166,7 +1201,7 @@ pub(crate) async fn game_detail(pool: &SqlitePool, user_id: &str, id: &str) -> A
         Some(m) => match_games(pool, user_id, id, m).await?,
         None => Vec::new(),
     };
-    Ok(GameDetail { game, events, can_continue, can_delete: mine, can_edit, your_decks, match_games })
+    Ok(GameDetail { game, events, can_continue, kept_by_name, can_take_back, can_delete: mine, can_edit, your_decks, match_games })
 }
 
 async fn remove(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(id): Path<String>) -> AppResult<()> {

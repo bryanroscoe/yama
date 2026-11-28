@@ -1,10 +1,11 @@
 // Shared table, host side: this phone stays the source of truth and streams its state to
 // everyone who scanned the code. Their taps come back as events and go through our dispatch.
 
-import { RELAY_TOKEN, relayShareKey, type TableEvent } from "@yama/core";
+import { RELAY_TOKEN, relayShareKey, replay, type TableEvent } from "@yama/core";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { api, API_BASE, publicOrigin } from "../api";
-import { dispatch, getGame, isPosted, subscribeTable, subscribeTableEnd, sync, useTable as useCurrentTable, setSharedReadOnly, setSharedHost, prepareSharing, refreshSharedGame } from "./store";
+import { api, API_BASE, ApiError, errorMessage, publicOrigin } from "../api";
+import { dispatch, getGame, isPosted, subscribeTable, subscribeTableEnd, sync, useTable as useCurrentTable, setSharedReadOnly, setSharedHost, prepareSharing, refreshSharedGame, sealForHandOver, releaseHandOver, letGo } from "./store";
+import { ask, tell } from "../components/confirm";
 import { chosenLayout, subscribeLayout } from "./layouts";
 import { getShowArt, subscribeShowArt } from "./art";
 import { getCountTurns, subscribeCountTurns } from "./turns";
@@ -123,7 +124,15 @@ const GUEST_EVENTS = new Set<TableEvent["type"]>([
 
 export { publicOrigin } from "../api";
 
-type Status = { gameId: string | null; connected: boolean; following?: string | null };
+type Status = {
+  gameId: string | null;
+  connected: boolean;
+  following?: string | null;
+  /** This device handed its game to another one: where to follow it now (a /table/join path and #fragment). */
+  movedTo?: string | null;
+  /** Handing the game over: uploading it, then telling everyone where it went. */
+  handingOver?: boolean;
+};
 let status: Status = { gameId: null, connected: false };
 const listeners = new Set<() => void>();
 const setStatus = (s: Partial<Status>) => {
@@ -189,7 +198,10 @@ function open(gameId: string, attempt = 0) {
   ws.onmessage = (m) => {
     try {
       const msg = JSON.parse(m.data) as { type: string; event?: TableEvent };
-      if (msg.type === "event" && msg.event && GUEST_EVENTS.has(msg.event.type)) dispatch(msg.event);
+      const asked = msg.type === "event" ? handOverAsk(msg.event) : null;
+      if (asked) void considerHandOver(gameId, asked);
+      // While the game is being handed over, taps wait for the device that will keep it.
+      else if (msg.type === "event" && msg.event && GUEST_EVENTS.has(msg.event.type) && !status.handingOver) dispatch(msg.event);
       // The Cloudflare relay slept and lost its newest copy, and someone joined.
       else if (msg.type === "resend") {
         lastSent = null;
@@ -217,6 +229,101 @@ function open(gameId: string, attempt = 0) {
       retry = window.setTimeout(() => open(gameId, next), wait);
     }
   };
+}
+
+/**
+ * A phone following the table asks to keep the game (handoff.ts): the claim code Yama gave its
+ * account, and the room it will host, which every phone moves to once this one says yes.
+ */
+export interface HandOverAsk {
+  type: "hand_over";
+  code: string;
+  key: string;
+  relay?: string;
+}
+
+function handOverAsk(event: unknown): HandOverAsk | null {
+  const e = event as Partial<HandOverAsk> | null;
+  if (!e || e.type !== "hand_over" || typeof e.code !== "string" || !RELAY_TOKEN.test(e.code) || typeof e.key !== "string") return null;
+  const edge = e.relay === EDGE_MARK;
+  // The Cloudflare relay takes only a whole key; the server's, any 16 characters or more.
+  if (edge ? !RELAY_TOKEN.test(e.key) : e.key.length < 16 || e.key.length > 128) return null;
+  return { type: "hand_over", code: e.code, key: e.key, ...(edge ? { relay: EDGE_MARK } : {}) };
+}
+
+/** An ask being considered (one at a time; another phone asking meanwhile asks again later). */
+let considering: string | null = null;
+
+/**
+ * Someone at the table asked to keep the game on their device. Yama says whose account asked;
+ * the person holding this device says yes or no. On yes, everything goes up to Yama, Yama hands
+ * the record to that account, and every phone following (this one too) moves to its room.
+ */
+async function considerHandOver(gameId: string, req: HandOverAsk) {
+  if (considering || status.gameId !== gameId || status.handingOver) return;
+  considering = req.code;
+  try {
+    // A stale ask (expired, or for a game this account no longer keeps) needs no word.
+    const who = await api<{ name: string; yours: boolean }>(`/api/table/${gameId}/claim/${req.code}`).catch((e) => {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    });
+    if (!who || status.gameId !== gameId) return;
+    const yes = await ask({
+      title: `Hand the game to ${who.yours ? "your other device" : `${who.name}'s device`}?`,
+      body: "It keeps the game from now on and saves it to Yama, and every device following moves to it, this one too. It stays your game, in your history.",
+      confirm: "Hand it over",
+    });
+    if (yes && status.gameId === gameId) await handOver(gameId, req);
+  } catch (e) {
+    void tell({ title: "The game wasn't handed over", body: errorMessage(e) });
+  } finally {
+    considering = null;
+  }
+}
+
+async function handOver(gameId: string, req: HandOverAsk) {
+  setStatus({ handingOver: true });
+  let handed = false;
+  try {
+    const sealed = await sealForHandOver(gameId);
+    if (!sealed) throw new Error("This device couldn't save the game to Yama first. Try again once it's online.");
+    await api(`/api/table/${gameId}/hand-over`, { method: "POST", json: { code: req.code } });
+    handed = true;
+    // The last word in this room: where the game went. Stored by the relay at once (a `next`
+    // always is), so a phone that was asleep follows it when it reconnects. Same game, new room.
+    const next = { gameId, key: req.key, ...(req.relay ? { relay: req.relay } : {}) };
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "state", setup: sealed.setup, log: sealed.log, layout: chosenLayout(sealed.setup.players.length), countTurns: getCountTurns(), showArt: getShowArt(), next, moved: true }));
+    }
+    // This device follows it from its own seat, if it had one.
+    const own = sealed.owner ? replay(sealed.setup, sealed.log).players.find((p) => p.userId === sealed.owner) : undefined;
+    if (own) localStorage.setItem(`yama.guest.${gameId}`, String(own.seat));
+    // Where this device goes (set first, so the table page follows it rather than the setup
+    // page), then the game leaves it (not finished, not deleted) and sharing stops: the server
+    // already stopped offering this device's room.
+    setStatus({ movedTo: `/table/join/${gameId}${joinFragment(req.key, req.relay === EDGE_MARK ? "edge" : "server")}` });
+    letGo(gameId);
+    reset();
+  } finally {
+    if (!handed) {
+      releaseHandOver(gameId);
+      setStatus({ handingOver: false });
+    }
+  }
+}
+
+/** The page following the moved game has opened: nothing more to send this device to. */
+export function clearMovedTo() {
+  if (status.movedTo) setStatus({ movedTo: null });
+}
+
+/**
+ * This device's room for keeping `gameId`, for asking to take it over: the share key every phone
+ * will follow, and which relay. Its secret stays here, as for any game this device hosts.
+ */
+export function roomToKeep(gameId: string): { key: string; relay?: string } {
+  return { key: shareKey(gameId), ...(hostRelay(gameId) === "edge" ? { relay: EDGE_MARK } : {}) };
 }
 
 /**
@@ -262,7 +369,7 @@ export function startHosting(gameId: string) {
   prepareSharing();
   stopHosting();
   const attempt = ++hostAttempt;
-  setStatus({ gameId, connected: false, following: null });
+  setStatus({ gameId, connected: false, following: null, movedTo: null, handingOver: false });
   // A reload may restore sharing, but a second tab must never steal it. The lock is released
   // by the browser when the document closes; no timers or expired leases decide ownership.
   if (typeof navigator !== "undefined" && navigator.locks) {
@@ -375,7 +482,7 @@ function reset({ preserveLive = false }: { preserveLive?: boolean } = {}) {
   releaseHostLock = null;
   setSharedHost(null);
   setSharedReadOnly(null);
-  setStatus({ gameId: null, connected: false, following: null });
+  setStatus({ gameId: null, connected: false, following: null, handingOver: false });
 }
 
 export function stopHosting() {

@@ -1207,3 +1207,50 @@ describe("persisted game identity at host grant", () => {
     expect(store.getGame()!.log).toEqual(latest.log);
   });
 });
+
+describe("handing a game to another device", () => {
+  beforeEach(() => {
+    calls.length = 0;
+    uploads.length = 0;
+    failWith = null;
+    goneOnPost = false;
+    postStatus = null;
+    serverFinished = false;
+  });
+
+  it("uploads every tap, the one still settling too, records nothing meanwhile, then lets the game go", async () => {
+    store.startGame(setup("g-hand"));
+    await store.sync();
+    store.dispatch({ type: "life", seat: 0, delta: -1 });
+    store.dispatch({ type: "life", seat: 0, delta: -1 });
+    const last = store.getGame()!.log.at(-1)!.seq;
+    const sealing = store.sealForHandOver("g-hand");
+    // Taps (and Undo) wait while it goes.
+    store.dispatch({ type: "life", seat: 0, delta: -5 });
+    expect(store.canUndo()).toBe(false);
+    const sealed = await sealing;
+    expect(sealed?.log.at(-1)?.seq).toBe(last);
+    expect(sealed?.syncedThrough).toBe(last);
+    const sent = uploads.flatMap((u) => (u.events as { seq: number }[]).map((e) => e.seq));
+    expect(sent).toContain(last);
+    expect(replay(sealed!.setup, sealed!.log).players[0]!.life).toBe(38);
+    store.letGo("g-hand");
+    expect(store.getGame()).toBeNull();
+    // Not finished, and not deleted from Yama.
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    expect(uploads.some((u) => u.finish)).toBe(false);
+  });
+
+  it("records again when Yama can't be reached first", async () => {
+    store.startGame(setup("g-offline-hand"));
+    await store.sync();
+    store.dispatch({ type: "life", seat: 0, delta: -1 });
+    failWith = "offline";
+    expect(await store.sealForHandOver("g-offline-hand")).toBeNull();
+    failWith = null;
+    store.dispatch({ type: "life", seat: 0, delta: -1 });
+    expect(replay(store.getGame()!.setup, store.getGame()!.log).players[0]!.life).toBe(38);
+    expect(await store.sealForHandOver("another game")).toBeNull();
+    store.discardGame();
+  });
+});

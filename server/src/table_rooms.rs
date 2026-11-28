@@ -15,6 +15,15 @@
 //! The creator's own other devices (a laptop following the game on their phone) may join
 //! without it: it's their game.
 //!
+//! Handing the table to another phone (Bryan, 27 Nov 2026): a signed-in phone following the game
+//! asks for a claim code here (`POST /claim`) and sends it to the host phone through the relay,
+//! with the share key of the room it will host. The host phone reads who asked (`GET
+//! /claim/:code`), and once its player says yes, uploads everything it has and hands the game
+//! over (`POST /hand-over`): the asking account keeps the game's record from then on
+//! (`games.kept_by`), and the old host tells every phone following to move to the new room.
+//! Claims live in memory for [`CLAIM_TTL`]; a restart only means asking again. The game's creator
+//! may take it back (`POST /take-back`), for a phone that died with the game on it.
+//!
 //! Production tables meet on Yama's Cloudflare relay instead (`relay/`), which keeps working when
 //! this server is offline and needs no account. For those, the host phone leaves the share key
 //! here (`PUT /live`, memory only, for a while) so the creator and the selected group can follow.
@@ -34,7 +43,7 @@ use crate::routes::AppState;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -48,6 +57,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/table/active", get(active))
         .route("/api/table/{game_id}/ws", get(connect))
         .route("/api/table/{game_id}/live", get(live).put(set_live).delete(clear_live))
+        .route("/api/table/{game_id}/claim", post(claim))
+        .route("/api/table/{game_id}/claim/{code}", get(claimant))
+        .route("/api/table/{game_id}/hand-over", post(hand_over))
+        .route("/api/table/{game_id}/take-back", post(take_back))
 }
 
 pub struct Rooms {
@@ -57,19 +70,34 @@ pub struct Rooms {
     /// Accounts deleted while connected (their ids), and the tables they hosted (`room:<game id>`):
     /// each socket of that account, or following that table, ends (`end_for`).
     ended: broadcast::Sender<String>,
+    /// Phones asking to keep a game, by claim code (`claim`).
+    claims: Mutex<HashMap<String, Claim>>,
 }
 
 impl Default for Rooms {
     fn default() -> Self {
-        Self { rooms: Mutex::default(), edge: Mutex::default(), ended: broadcast::channel(BACKLOG).0 }
+        Self { rooms: Mutex::default(), edge: Mutex::default(), ended: broadcast::channel(BACKLOG).0, claims: Mutex::default() }
     }
 }
+
+/// A signed-in phone's ask to keep a game: whose account, for which game, since when.
+struct Claim {
+    game: String,
+    user: String,
+    at: Instant,
+}
+
+/// How long a claim waits for the host phone's yes.
+const CLAIM_TTL: Duration = Duration::from_secs(5 * 60);
+/// Claims one account may have waiting at once (a new ask for the same game replaces its old one).
+const MAX_CLAIMS: usize = 4;
 
 impl Rooms {
     /// An account was deleted: the tables it hosts close for their guests, it stops following
     /// other people's, and the relay share keys it left here are forgotten.
     pub fn end_for(&self, user_id: &str) {
         self.edge.lock().unwrap().retain(|_, e| e.user != user_id);
+        self.claims.lock().unwrap().retain(|_, c| c.user != user_id);
         let _ = self.ended.send(user_id.to_string());
         let mut closed = Vec::new();
         self.rooms.lock().unwrap().retain(|game, r| {
@@ -187,10 +215,10 @@ async fn active_tables(st: &AppState, user: &str) -> AppResult<Vec<ActiveTable>>
          LEFT JOIN playgroups pg ON pg.id = g.playgroup_id
          WHERE g.id IN (SELECT value FROM json_each(?)) AND g.mode = 'in_person'
            AND g.status = 'in_progress' AND u.disabled_at IS NULL
-           AND (g.created_by = ? OR pg.owner_id = ? OR EXISTS (
+           AND (g.created_by = ? OR g.kept_by = ? OR pg.owner_id = ? OR EXISTS (
              SELECT 1 FROM playgroup_members m WHERE m.playgroup_id = pg.id AND m.user_id = ?))
          ORDER BY g.started_at DESC, g.id",
-    ).bind(ids).bind(user).bind(user).bind(user).fetch_all(&st.pool).await?;
+    ).bind(ids).bind(user).bind(user).bind(user).bind(user).fetch_all(&st.pool).await?;
     for table in &mut tables {
         let (key, relay) = shared.remove(&table.id).unwrap();
         table.key = key;
@@ -231,12 +259,8 @@ async fn set_live(
     if !is_relay_key(&body.key) {
         return Err(AppError::bad("not a share key"));
     }
-    let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ? AND mode = 'in_person' AND status = 'in_progress'")
-        .bind(&game_id)
-        .fetch_optional(&st.pool)
-        .await?;
-    if creator.as_deref() != Some(user.id.as_str()) {
-        return Err(AppError::Forbidden("only the phone that started this game can share it".into()));
+    if going_writer(&st, &game_id).await?.as_deref() != Some(user.id.as_str()) {
+        return Err(AppError::Forbidden("only the phone that keeps this game can share it".into()));
     }
     let mut map = st.rooms.edge.lock().unwrap();
     map.retain(|_, e| e.at.elapsed() < EDGE_TTL);
@@ -255,6 +279,129 @@ async fn clear_live(State(st): State<AppState>, CurrentUser(user): CurrentUser, 
         map.remove(&game_id);
     }
     Json(serde_json::json!({ "ok": true }))
+}
+
+/// Who writes `game_id`'s record (`games::writer`), while it's an in-person game still going.
+async fn going_writer(st: &AppState, game_id: &str) -> AppResult<Option<String>> {
+    Ok(sqlx::query_scalar("SELECT COALESCE(kept_by, created_by) FROM games WHERE id = ? AND mode = 'in_person' AND status = 'in_progress'")
+        .bind(game_id)
+        .fetch_optional(&st.pool)
+        .await?)
+}
+
+/// A new claim code: 32 lowercase hex characters (a v4 UUID's random bits), like a share key.
+fn claim_code() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+impl Rooms {
+    /// Keep `user`'s ask for `game`, replacing an older ask of theirs for it. None when they
+    /// already have [`MAX_CLAIMS`] other asks waiting.
+    fn add_claim(&self, game: &str, user: &str, now: Instant) -> Option<String> {
+        let mut claims = self.claims.lock().unwrap();
+        claims.retain(|_, c| now.saturating_duration_since(c.at) < CLAIM_TTL && !(c.user == user && c.game == game));
+        if claims.values().filter(|c| c.user == user).count() >= MAX_CLAIMS {
+            return None;
+        }
+        let code = claim_code();
+        claims.insert(code.clone(), Claim { game: game.into(), user: user.into(), at: now });
+        Some(code)
+    }
+
+    /// The account behind a waiting claim for `game`.
+    fn claimant(&self, game: &str, code: &str, now: Instant) -> Option<String> {
+        let claims = self.claims.lock().unwrap();
+        claims.get(code).filter(|c| c.game == game && now.saturating_duration_since(c.at) < CLAIM_TTL).map(|c| c.user.clone())
+    }
+
+    /// Use up a claim for `game`: the account behind it, if it was still waiting.
+    fn take_claim(&self, game: &str, code: &str, now: Instant) -> Option<String> {
+        let mut claims = self.claims.lock().unwrap();
+        let user = claims.get(code).filter(|c| c.game == game && now.saturating_duration_since(c.at) < CLAIM_TTL).map(|c| c.user.clone())?;
+        claims.remove(code);
+        Some(user)
+    }
+}
+
+/// A phone following this table asks to keep the game: a claim code for it to send the host phone.
+async fn claim(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+    let Some(writer) = going_writer(&st, &game_id).await? else {
+        return Err(AppError::NotFound("game"));
+    };
+    if writer == user.id {
+        return Err(AppError::Conflict("This account keeps this game already. Continue it from its page in Game history.".into()));
+    }
+    let Some(code) = st.rooms.add_claim(&game_id, &user.id, Instant::now()) else {
+        return Err(AppError::Conflict("This account is asking for too many games at once. Wait a few minutes.".into()));
+    };
+    Ok(Json(serde_json::json!({ "code": code })))
+}
+
+/// The host phone reads who is asking for its game. Only the account that keeps the game may.
+async fn claimant(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path((game_id, code)): Path<(String, String)>) -> AppResult<Json<serde_json::Value>> {
+    if going_writer(&st, &game_id).await?.as_deref() != Some(user.id.as_str()) {
+        return Err(AppError::NotFound("game"));
+    }
+    let Some(asker) = st.rooms.claimant(&game_id, &code, Instant::now()) else {
+        return Err(AppError::NotFound("claim"));
+    };
+    let name: String = sqlx::query_scalar("SELECT display_name FROM users WHERE id = ? AND disabled_at IS NULL")
+        .bind(&asker)
+        .fetch_optional(&st.pool)
+        .await?
+        .ok_or(AppError::NotFound("claim"))?;
+    Ok(Json(serde_json::json!({ "name": name, "yours": asker == user.id })))
+}
+
+#[derive(Deserialize)]
+struct HandOver {
+    code: String,
+}
+
+/// The host phone hands its game to the phone that asked: that account keeps the record from now on.
+async fn hand_over(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>, Json(body): Json<HandOver>) -> AppResult<Json<serde_json::Value>> {
+    if going_writer(&st, &game_id).await?.as_deref() != Some(user.id.as_str()) {
+        return Err(AppError::NotFound("game"));
+    }
+    let Some(asker) = st.rooms.take_claim(&game_id, &body.code, Instant::now()) else {
+        return Err(AppError::Conflict("That ask has expired. Ask again from the other device.".into()));
+    };
+    // Back to the creator is no keeper at all. Only while this account still writes it, so two
+    // hand-overs at once can't both land.
+    let moved = sqlx::query(
+        "UPDATE games SET kept_by = CASE WHEN created_by = ?1 THEN NULL ELSE ?1 END
+         WHERE id = ?2 AND mode = 'in_person' AND status = 'in_progress' AND COALESCE(kept_by, created_by) = ?3
+           AND EXISTS (SELECT 1 FROM users WHERE id = ?1 AND disabled_at IS NULL)",
+    )
+    .bind(&asker)
+    .bind(&game_id)
+    .bind(&user.id)
+    .execute(&st.pool)
+    .await?
+    .rows_affected();
+    if moved == 0 {
+        return Err(AppError::Conflict("This game can't be handed over now. Refresh to see where it is.".into()));
+    }
+    // This account no longer offers the game on the Cloudflare relay; the new phone offers its own room.
+    st.rooms.edge.lock().unwrap().remove(&game_id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+/// The game's creator takes back a game it handed to another phone (that phone died, or left).
+async fn take_back(State(st): State<AppState>, CurrentUser(user): CurrentUser, Path(game_id): Path<String>) -> AppResult<Json<serde_json::Value>> {
+    let taken = sqlx::query("UPDATE games SET kept_by = NULL WHERE id = ? AND created_by = ? AND mode = 'in_person' AND status = 'in_progress' AND kept_by IS NOT NULL")
+        .bind(&game_id)
+        .bind(&user.id)
+        .execute(&st.pool)
+        .await?
+        .rows_affected();
+    if taken == 0 {
+        let ours = going_writer(&st, &game_id).await?.as_deref() == Some(user.id.as_str());
+        if !ours {
+            return Err(AppError::NotFound("game"));
+        }
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 /// A guest may join with the room's share key, or as the account hosting it.
@@ -334,12 +481,8 @@ async fn connect(
         return Err(AppError::Unauthorized);
     }
     if host {
-        let creator: Option<String> = sqlx::query_scalar("SELECT created_by FROM games WHERE id = ? AND mode = 'in_person' AND status = 'in_progress'")
-            .bind(&game_id)
-            .fetch_optional(&st.pool)
-            .await?;
-        if creator.as_deref() != Some(user.id.as_str()) {
-            return Err(AppError::Forbidden("only the phone that started this game can share it".into()));
+        if going_writer(&st, &game_id).await?.as_deref() != Some(user.id.as_str()) {
+            return Err(AppError::Forbidden("only the phone that keeps this game can share it".into()));
         }
         let map = st.rooms.rooms.lock().unwrap();
         // Rooms still in use: a host or guests connected.
@@ -661,5 +804,112 @@ mod tests {
         assert!(ended_for(Ok(table.clone()), &["sam", room_end("ann-game").as_str()]), "sam, following ann's table, leaves");
         assert!(!ended_for(Ok(table), &["sam", room_end("bob-game").as_str()]), "bob's table carries on");
         assert!(ended_for(Err(broadcast::error::RecvError::Lagged(3)), &["bob"]), "missed notices end the socket to be safe");
+    }
+
+    #[tokio::test]
+    async fn a_following_phone_takes_the_game_with_the_hosts_yes_and_the_creator_can_take_it_back() {
+        use crate::testutil::{config, deck, send, state_with, user};
+        use axum::http::{Method, StatusCode};
+        use serde_json::json;
+        let pool = crate::db::test_pool().await;
+        let (host, ht) = user(&pool, "host@example.com").await;
+        let (sam, st_) = user(&pool, "sam@example.com").await;
+        let (_, ot) = user(&pool, "outsider@example.com").await;
+        let state = state_with(config(), pool.clone()).await;
+        let app = crate::routes::app(state.clone());
+        // The host plays their own seat; a friend without a seat on Yama plays a deck the host lent.
+        let (_, lent) = deck(&pool, &host, "Lent deck").await;
+        let id = uuid::Uuid::new_v4().to_string();
+        let seats = json!([
+            { "seat": 0, "user_id": host, "commander_name": "Test Commander" },
+            { "seat": 1, "guest_name": "Jo", "deck_version_id": lent, "deck_label": "Test Commander", "commander_name": "Test Commander" },
+        ]);
+        let life = |seq: i64| json!({ "seq": seq, "kind": "life", "actor_seat": 1, "payload": { "type": "life", "seat": 1, "delta": -1 }, "created_at": format!("2026-11-27T19:00:0{seq}Z") });
+        let game = |events: serde_json::Value| json!({ "id": id, "seats": seats, "events": events });
+        assert_eq!(send(&app, Method::POST, "/api/games", Some(&ht), Some(game(json!([life(1)])))).await.0, StatusCode::OK);
+        let route = format!("/api/table/{id}");
+
+        // Sam asks; only the host's account may read who asked, and nobody may use the code but it.
+        let (status, asked) = send(&app, Method::POST, &format!("{route}/claim"), Some(&st_), None).await;
+        assert_eq!(status, StatusCode::OK, "{asked}");
+        let code = asked["code"].as_str().unwrap().to_string();
+        assert!(is_token(&code));
+        assert_eq!(send(&app, Method::POST, &format!("{route}/claim"), Some(&ht), None).await.0, StatusCode::CONFLICT, "the host keeps it already");
+        assert_eq!(send(&app, Method::GET, &format!("{route}/claim/{code}"), Some(&ot), None).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, Method::GET, &format!("{route}/claim/{code}"), Some(&st_), None).await.0, StatusCode::NOT_FOUND);
+        let (_, who) = send(&app, Method::GET, &format!("{route}/claim/{code}"), Some(&ht), None).await;
+        assert_eq!(who["name"], "sam");
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&st_), Some(json!({ "code": code }))).await.0, StatusCode::NOT_FOUND, "only the keeper hands it over");
+        assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&st_), Some(json!([life(2)]))).await.0, StatusCode::NOT_FOUND, "not Sam's to write yet");
+        assert_eq!(send(&app, Method::GET, &format!("/api/games/{id}"), Some(&st_), None).await.0, StatusCode::NOT_FOUND, "nor to see");
+
+        // The host says yes: Sam's phone keeps the record now, as the host's own game.
+        state.rooms.edge.lock().unwrap().insert(id.clone(), EdgeShare { user: host.clone(), key: "a".repeat(32), at: Instant::now() });
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": code }))).await.0, StatusCode::OK);
+        assert!(!state.rooms.edge.lock().unwrap().contains_key(&id), "the old host's room is no longer offered");
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": code }))).await.0, StatusCode::NOT_FOUND, "a claim is used once, and it isn't the host's game to give now");
+        let (status, saved) = send(&app, Method::POST, "/api/games", Some(&st_), Some(game(json!([life(1), life(2)])))).await;
+        assert_eq!(status, StatusCode::OK, "Sam's phone saves it as the host would: {saved}");
+        assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&st_), Some(json!([life(3)]))).await.0, StatusCode::OK);
+        let stored: (String, Option<String>, Option<String>) = sqlx::query_as("SELECT g.created_by, g.kept_by, s.deck_version_id FROM games g JOIN game_seats s ON s.game_id = g.id AND s.seat = 1 WHERE g.id = ?")
+            .bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(stored, (host.clone(), Some(sam.clone()), Some(lent.clone())), "still the host's game, with the deck they lent");
+        let seat0: Option<String> = sqlx::query_scalar("SELECT user_id FROM game_seats WHERE game_id = ? AND seat = 0").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(seat0.as_deref(), Some(host.as_str()));
+        let (_, mine) = send(&app, Method::GET, &format!("/api/games/{id}"), Some(&st_), None).await;
+        assert_eq!((mine["can_continue"].clone(), mine["can_delete"].clone(), mine["kept_by_name"].clone()), (json!(true), json!(false), json!(null)));
+        let (_, theirs) = send(&app, Method::GET, &format!("/api/games/{id}"), Some(&ht), None).await;
+        assert_eq!((theirs["can_continue"].clone(), theirs["can_take_back"].clone(), theirs["kept_by_name"].clone()), (json!(false), json!(true), json!("sam")));
+        // The host's old copy can't write over Sam's, and Sam's phone may share the table.
+        assert_eq!(send(&app, Method::POST, "/api/games", Some(&ht), Some(game(json!([life(1)])))).await.0, StatusCode::CONFLICT);
+        assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&ht), Some(json!([life(4)]))).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, Method::PUT, &format!("{route}/live"), Some(&st_), Some(json!({ "key": "b".repeat(32) }))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::PUT, &format!("{route}/live"), Some(&ht), Some(json!({ "key": "c".repeat(32) }))).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(send(&app, Method::GET, "/api/table/active", Some(&st_), None).await.1.as_array().unwrap().len(), 1);
+        assert_eq!(send(&app, Method::DELETE, &format!("/api/games/{id}"), Some(&st_), None).await.0, StatusCode::NOT_FOUND, "it isn't Sam's to delete");
+
+        // Sam's phone hands it back to the host the same way: no keeper at all.
+        let (_, back) = send(&app, Method::POST, &format!("{route}/claim"), Some(&ht), None).await;
+        assert_eq!(send(&app, Method::GET, &format!("{route}/claim/{}", back["code"].as_str().unwrap()), Some(&st_), None).await.1["name"], "host");
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&st_), Some(json!({ "code": back["code"] }))).await.0, StatusCode::OK);
+        let keeper: Option<String> = sqlx::query_scalar("SELECT kept_by FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(keeper, None);
+
+        // Handed again, and Sam's phone dies: the host takes it back without asking.
+        let (_, again) = send(&app, Method::POST, &format!("{route}/claim"), Some(&st_), None).await;
+        assert_eq!(send(&app, Method::POST, &format!("{route}/hand-over"), Some(&ht), Some(json!({ "code": again["code"] }))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, &format!("{route}/take-back"), Some(&ot), None).await.0, StatusCode::NOT_FOUND, "only the creator takes it back");
+        assert_eq!(send(&app, Method::POST, &format!("{route}/take-back"), Some(&st_), None).await.0, StatusCode::OK, "Sam keeps it already");
+        let keeper: Option<String> = sqlx::query_scalar("SELECT kept_by FROM games WHERE id = ?").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(keeper.as_deref(), Some(sam.as_str()), "and still does");
+        assert_eq!(send(&app, Method::POST, &format!("{route}/take-back"), Some(&ht), None).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&ht), Some(json!([life(4)]))).await.0, StatusCode::OK);
+        assert_eq!(send(&app, Method::POST, &format!("/api/games/{id}/events"), Some(&st_), Some(json!([life(5)]))).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(send(&app, Method::POST, &format!("{route}/take-back"), Some(&ht), None).await.0, StatusCode::OK, "taking back a game you keep changes nothing");
+    }
+
+    fn is_token(code: &str) -> bool {
+        code.len() == 32 && code.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    }
+
+    #[test]
+    fn claims_expire_are_used_once_and_are_bounded() {
+        let rooms = Rooms::default();
+        let now = Instant::now();
+        let code = rooms.add_claim("g", "sam", now).unwrap();
+        assert_eq!(rooms.claimant("g", &code, now).as_deref(), Some("sam"));
+        assert_eq!(rooms.claimant("other", &code, now), None, "a code is for its own game");
+        assert_eq!(rooms.claimant("g", &code, now + CLAIM_TTL), None, "and only for a while");
+        let newer = rooms.add_claim("g", "sam", now).unwrap();
+        assert_eq!(rooms.claimant("g", &code, now), None, "asking again replaces the old ask");
+        assert_eq!(rooms.take_claim("g", &newer, now).as_deref(), Some("sam"));
+        assert_eq!(rooms.take_claim("g", &newer, now), None, "used once");
+        for g in ["a", "b", "c", "d"] {
+            assert!(rooms.add_claim(g, "sam", now).is_some());
+        }
+        assert!(rooms.add_claim("e", "sam", now).is_none(), "four asks waiting at most");
+        assert!(rooms.add_claim("e", "jo", now).is_some(), "per account");
+        rooms.end_for("sam");
+        assert_eq!(rooms.claims.lock().unwrap().len(), 1, "a deleted account's asks go");
     }
 }

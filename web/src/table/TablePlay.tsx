@@ -79,6 +79,8 @@ export function TablePlay() {
     const url = new URL(joinUrl(hosting.following));
     return <Navigate to={`${url.pathname}${url.hash}`} replace />;
   }
+  // Handed to another device: this one follows it there.
+  if (hosting.movedTo) return <Navigate to={hosting.movedTo} replace />;
   // Saving ends the game here, which sends this page back to setup before the save's own
   // navigation lands: both carry what was saved, so the setup page can say so either way.
   if (!game || !state) return <Navigate to="/play/table" replace state={saved.current ? { saved: saved.current } : null} />;
@@ -95,6 +97,8 @@ export interface FollowingTable {
   seat: number | null;
   onChooseSeat: (seat: number) => void;
   status: string;
+  /** Asking to keep the game on this device instead (GuestTable). */
+  keepHere?: ReactNode;
   layout?: import("./layouts").LayoutKey;
   countTurns?: boolean;
   showArt?: boolean;
@@ -1503,6 +1507,7 @@ function TableMenu({ state, following, onClose, onLeave, onFinish, onJoin, onDic
           <div className="row">
             <Button onClick={onClose}>Back to the table</Button>
           </div>
+          {following.keepHere}
         </section>
       ) : isGuest() ? (
         <p className="small dim tm-guest-share">To share this table with other devices, sign in with Google from the life counter's setup page. This game stays on this device.</p>
